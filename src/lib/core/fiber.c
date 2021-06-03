@@ -45,6 +45,11 @@
 
 extern void cord_on_yield(void);
 
+#if ENABLE_BACKTRACE
+#include "backtrace.h" /* fast_trace */
+
+#endif /* ENABLE_BACKTRACE */
+
 #if ENABLE_FIBER_TOP
 #include <x86intrin.h> /* __rdtscp() */
 
@@ -214,6 +219,10 @@ fiber_mprotect(void *addr, size_t len, int prot)
 #if ENABLE_FIBER_TOP
 static __thread bool fiber_top_enabled = false;
 #endif /* ENABLE_FIBER_TOP */
+
+#if ENABLE_BACKTRACE
+static __thread bool fiber_parent_bt_enabled = false;
+#endif /* ENABLE_BACKTRACE */
 
 /**
  * An action performed each time a context switch happens.
@@ -1259,6 +1268,22 @@ fiber_new_ex(const char *name, const struct fiber_attr *fiber_attr,
 	fiber->f = f;
 	fiber->fid = cord->next_fid;
 	fiber_set_name(fiber, name);
+#if ENABLE_BACKTRACE
+	if (fiber_parent_bt_enabled) {
+		struct fiber *parent = fiber();
+		int cnt = backtrace_collect_ip(fiber->parent_bt_ip_buf,
+					       FIBER_PARENT_BT_MAX);
+		int rest_cnt = FIBER_PARENT_BT_MAX - cnt;
+		if (cnt < FIBER_PARENT_BT_MAX && parent != NULL) {
+			memcpy(fiber->parent_bt_ip_buf + cnt,
+			       parent->parent_bt_ip_buf,
+			       rest_cnt * sizeof(parent->parent_bt_ip_buf[0]));
+		} else {
+			memset(fiber->parent_bt_ip_buf + cnt, 0,
+			       rest_cnt * sizeof(parent->parent_bt_ip_buf[0]));
+		}
+	}
+#endif /* ENABLE_BACKTRACE */
 	register_fid(fiber);
 	fiber->csw = 0;
 
@@ -1405,6 +1430,26 @@ fiber_top_disable(void)
 	}
 }
 #endif /* ENABLE_FIBER_TOP */
+
+#if ENABLE_BACKTRACE
+bool
+fiber_parent_bt_is_enabled(void)
+{
+	return fiber_parent_bt_enabled;
+}
+
+void
+fiber_parent_bt_enable(void)
+{
+	fiber_parent_bt_enabled = true;
+}
+
+void
+fiber_parent_bt_disable(void)
+{
+	fiber_parent_bt_enabled = false;
+}
+#endif /* ENABLE_BACKTRACE */
 
 size_t
 box_region_used(void)

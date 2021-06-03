@@ -37,6 +37,32 @@ extern "C" {
 struct lua_State;
 
 /**
+ * Maximal procedure name and source length (including '\0')
+ * and backtrace entries count.
+ */
+enum {
+	PARENT_BT_LUA_NAME_MAX = 64,
+	PARENT_BT_LUA_LEN_MAX = 32
+};
+
+/**
+ * Stores lua parent backtrace entry for fiber.
+ */
+struct parent_bt_lua_entry {
+	char name[PARENT_BT_LUA_NAME_MAX];
+	char source[PARENT_BT_LUA_NAME_MAX];
+	int line;
+};
+
+/**
+ * Stores lua parent backtrace for fiber.
+ */
+struct parent_bt_lua {
+	int cnt;
+	struct parent_bt_lua_entry entries[PARENT_BT_LUA_LEN_MAX];
+};
+
+/**
 * Initialize box.fiber system
 */
 void
