@@ -32,6 +32,9 @@
  */
 
 #include <stddef.h>
+#include <stdint.h>
+
+#include "sio.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -52,6 +55,15 @@ enum {
 	 * processing stops until some new fibers are freed up.
 	 */
 	IPROTO_FIBER_POOL_SIZE_FACTOR = 5,
+	/** Maximum count of listening sockets */
+	IPROTO_LISTEN_SOCKET_MAX = 20,
+	/**
+	 * We need `SERVICE_NAME_MAXLEN` bytes for each listen
+	 * address and two bytes for delimiter `,` between them.
+	 */
+	IPROTO_LISTEN_INFO_MAXLEN =
+		(SERVICE_NAME_MAXLEN + 2) * IPROTO_LISTEN_SOCKET_MAX,
+
 };
 
 extern unsigned iproto_readahead;
@@ -97,7 +109,7 @@ void
 iproto_init(int threads_count);
 
 int
-iproto_listen(const char *uri);
+iproto_listen(const char **uri_array, int size);
 
 void
 iproto_set_msg_max(int iproto_msg_max);
