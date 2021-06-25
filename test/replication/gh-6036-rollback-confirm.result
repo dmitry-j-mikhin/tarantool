@@ -1,0 +1,126 @@
+-- test-run result file version 2
+--
+-- gh-6036: .
+--
+test_run = require('test_run').new()
+ | ---
+ | ...
+
+test_run:cmd('create server master with script="replication/gh-6036-master.lua"')
+ | ---
+ | - true
+ | ...
+test_run:cmd('create server replica with script="replication/gh-6036-replica.lua"')
+ | ---
+ | - true
+ | ...
+
+test_run:cmd('start server master')
+ | ---
+ | - true
+ | ...
+test_run:cmd('start server replica')
+ | ---
+ | - true
+ | ...
+
+-- step 1 & 2
+test_run:switch('master')
+ | ---
+ | - true
+ | ...
+box.cfg({                                       \
+    replication = {                             \
+            "unix/:./master.sock",              \
+            "unix/:./replica.sock",             \
+    },                                          \
+})
+ | ---
+ | ...
+_ = box.schema.create_space('sync', {is_sync = true})
+ | ---
+ | ...
+_ = box.space.sync:create_index('pk')
+ | ---
+ | ...
+
+-- step 3
+f = require('fiber').create(function() box.space.sync:replace{1} end)
+ | ---
+ | ...
+
+test_run:switch('replica')
+ | ---
+ | - true
+ | ...
+-- step 4
+box.cfg{replication = {}}
+ | ---
+ | ...
+
+test_run:switch('master')
+ | ---
+ | - true
+ | ...
+-- step 5
+box.cfg({                                       \
+    replication = {},                           \
+    replication_synchro_timeout = 0.001,        \
+    election_mode = 'manual',                   \
+})
+ | ---
+ | ...
+while f:status() ~= 'dead' do fiber.sleep(0.1) end
+ | ---
+ | - error: '[string "while f:status() ~= ''dead'' do fiber.sleep(0.1..."]:1: variable
+ |     ''fiber'' is not declared'
+ | ...
+
+test_run:switch('replica')
+ | ---
+ | - true
+ | ...
+--step 6
+box.cfg({                                       \
+    replication_synchro_quorum = 1,             \
+    election_mode = 'manual'                    \
+})
+ | ---
+ | ...
+box.ctl.promote()
+ | ---
+ | ...
+
+test_run:switch('master')
+ | ---
+ | - true
+ | ...
+box.cfg({                                       \
+    replication = {                             \
+            "unix/:./master.sock",              \
+            "unix/:./replica.sock",             \
+    },                                          \
+})
+ | ---
+ | ...
+
+test_run:switch('default')
+ | ---
+ | - true
+ | ...
+test_run:cmd('stop server master')
+ | ---
+ | - true
+ | ...
+test_run:cmd('delete server master')
+ | ---
+ | - true
+ | ...
+test_run:cmd('stop server replica')
+ | ---
+ | - true
+ | ...
+test_run:cmd('delete server replica')
+ | ---
+ | - true
+ | ...
