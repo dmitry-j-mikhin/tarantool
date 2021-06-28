@@ -88,11 +88,11 @@ box_raft_update_synchro_queue(struct raft *raft)
 {
 	assert(raft == box_raft());
 	/*
-	 * In case these are manual elections, we are already in the middle of a
-	 * `promote` call. No need to call it once again.
+	 * In case the elections were triggered manually, we are already in
+	 * the middle of a `promote` call. No need to call it once again.
 	 */
 	if (raft->state == RAFT_STATE_LEADER &&
-	    box_election_mode != ELECTION_MODE_MANUAL) {
+	    !box_in_promote()) {
 		int rc = 0;
 		uint32_t errcode = 0;
 		do {

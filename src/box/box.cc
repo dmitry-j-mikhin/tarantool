@@ -1680,20 +1680,26 @@ box_issue_promote(uint32_t prev_leader_id, int64_t promote_lsn)
 	assert(txn_limbo_is_empty(&txn_limbo));
 }
 
+/* A guard to block multiple simultaneous box_promote() invocations. */
+static bool in_box_promote = false;
+
+bool box_in_promote(void)
+{
+	return in_box_promote;
+}
+
 int
 box_promote(void)
 {
-	/* A guard to block multiple simultaneous function invocations. */
-	static bool in_promote = false;
-	if (in_promote) {
+	if (in_box_promote) {
 		diag_set(ClientError, ER_UNSUPPORTED, "box.ctl.promote",
 			 "simultaneous invocations");
 		return -1;
 	}
 	struct raft *raft = box_raft();
-	in_promote = true;
+	in_box_promote = true;
 	auto promote_guard = make_scoped_guard([&] {
-		in_promote = false;
+		in_box_promote = false;
 	});
 	/*
 	 * Do nothing when box isn't configured and when PROMOTE was already
@@ -1718,21 +1724,8 @@ box_promote(void)
 			 "manual elections");
 		return -1;
 	case ELECTION_MODE_MANUAL:
-		if (raft->state == RAFT_STATE_LEADER)
-			return 0;
-		run_elections = true;
-		break;
 	case ELECTION_MODE_CANDIDATE:
-		/*
-		 * Leader elections are enabled, and this instance is allowed to
-		 * promote only if it's already an elected leader. No manual
-		 * elections.
-		 */
-		if (raft->state != RAFT_STATE_LEADER) {
-			diag_set(ClientError, ER_UNSUPPORTED, "election_mode="
-				 "'candidate'", "manual elections");
-			return -1;
-		}
+		run_elections = raft->state != RAFT_STATE_LEADER;
 		break;
 	default:
 		unreachable();
