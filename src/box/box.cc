@@ -1702,6 +1702,9 @@ box_promote(void)
 	 */
 	if (!is_box_configured)
 		return 0;
+	if (txn_limbo_replica_term(&txn_limbo, instance_id) ==
+	    box_raft()->term)
+		return 0;
 	bool run_elections = false;
 	bool try_wait = false;
 
@@ -1730,10 +1733,6 @@ box_promote(void)
 				 "'candidate'", "manual elections");
 			return -1;
 		}
-		if (txn_limbo_replica_term(&txn_limbo, instance_id) ==
-		    raft->term)
-			return 0;
-
 		break;
 	default:
 		unreachable();
