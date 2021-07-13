@@ -1573,7 +1573,8 @@ box_run_elections(void)
 static int
 box_check_promote_term_changed(uint64_t promote_term)
 {
-	if (txn_limbo.promote_greatest_term != promote_term) {
+	const struct txn_limbo_terms *tr = &txn_limbo.terms;
+	if (tr->terms_max != promote_term) {
 		diag_set(ClientError, ER_INTERFERING_PROMOTE,
 			 txn_limbo.owner_id);
 		return -1;
@@ -1585,7 +1586,8 @@ box_check_promote_term_changed(uint64_t promote_term)
 static int
 box_trigger_elections(void)
 {
-	uint64_t promote_term = txn_limbo.promote_greatest_term;
+	const struct txn_limbo_terms *tr = &txn_limbo.terms;
+	uint64_t promote_term = tr->terms_max;
 	raft_new_term(box_raft());
 	if (box_raft_wait_term_persisted() < 0)
 		return -1;
@@ -1596,7 +1598,8 @@ box_trigger_elections(void)
 static int
 box_try_wait_confirm(double timeout)
 {
-	uint64_t promote_term = txn_limbo.promote_greatest_term;
+	const struct txn_limbo_terms *tr = &txn_limbo.terms;
+	uint64_t promote_term = tr->terms_max;
 	txn_limbo_wait_empty(&txn_limbo, timeout);
 	return box_check_promote_term_changed(promote_term);
 }
@@ -1612,7 +1615,8 @@ box_wait_limbo_acked(void)
 	if (txn_limbo_is_empty(&txn_limbo))
 		return txn_limbo.confirmed_lsn;
 
-	uint64_t promote_term = txn_limbo.promote_greatest_term;
+	const struct txn_limbo_terms *tr = &txn_limbo.terms;
+	uint64_t promote_term = tr->terms_max;
 	int quorum = replication_synchro_quorum;
 	struct txn_limbo_entry *last_entry;
 	last_entry = txn_limbo_last_synchro_entry(&txn_limbo);

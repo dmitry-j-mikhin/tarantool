@@ -37,6 +37,13 @@
 
 struct txn_limbo txn_limbo;
 
+static void
+txn_limbo_terms_create(struct txn_limbo_terms *tr)
+{
+	vclock_create(&tr->terms_map);
+	tr->terms_max = 0;
+}
+
 static inline void
 txn_limbo_create(struct txn_limbo *limbo)
 {
@@ -45,8 +52,7 @@ txn_limbo_create(struct txn_limbo *limbo)
 	limbo->owner_id = REPLICA_ID_NIL;
 	fiber_cond_create(&limbo->wait_cond);
 	vclock_create(&limbo->vclock);
-	vclock_create(&limbo->promote_term_map);
-	limbo->promote_greatest_term = 0;
+	txn_limbo_terms_create(&limbo->terms);
 	limbo->confirmed_lsn = 0;
 	limbo->rollback_count = 0;
 	limbo->is_in_rollback = false;
@@ -305,10 +311,11 @@ void
 txn_limbo_checkpoint(const struct txn_limbo *limbo,
 		     struct synchro_request *req)
 {
+	const struct txn_limbo_terms *tr = &limbo->terms;
 	req->type = IPROTO_PROMOTE;
 	req->replica_id = limbo->owner_id;
 	req->lsn = limbo->confirmed_lsn;
-	req->term = limbo->promote_greatest_term;
+	req->term = tr->terms_max;
 }
 
 static void
@@ -726,20 +733,21 @@ txn_limbo_wait_empty(struct txn_limbo *limbo, double timeout)
 void
 txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
 {
+	struct txn_limbo_terms *tr = &limbo->terms;
 	uint64_t term = req->term;
 	uint32_t origin = req->origin_id;
 	if (txn_limbo_replica_term(limbo, origin) < term) {
-		vclock_follow(&limbo->promote_term_map, origin, term);
-		if (term > limbo->promote_greatest_term)
-			limbo->promote_greatest_term = term;
+		vclock_follow(&tr->terms_map, origin, term);
+		if (term > tr->terms_max)
+			tr->terms_max = term;
 	} else if (iproto_type_is_promote_request(req->type) &&
-		   limbo->promote_greatest_term > 1) {
+		   tr->terms_max > 1) {
 		/* PROMOTE for outdated term. Ignore. */
 		say_info("RAFT: ignoring %s request from instance "
 			 "id %u for term %llu. Greatest term seen "
 			 "before (%llu) is bigger.",
 			 iproto_type_name(req->type), origin, (long long)term,
-			 (long long)limbo->promote_greatest_term);
+			 (long long)tr->terms_max);
 		return;
 	}
 

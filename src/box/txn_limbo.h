@@ -76,6 +76,31 @@ txn_limbo_entry_is_complete(const struct txn_limbo_entry *e)
 }
 
 /**
+ * Keep state of promote requests to handle split-brain
+ * situation and other errors.
+ */
+struct txn_limbo_terms {
+	/**
+	 * Latest terms received with PROMOTE entries from remote instances.
+	 * Limbo uses them to filter out the transactions coming not from the
+	 * limbo owner, but so outdated that they are rolled back everywhere
+	 * except outdated nodes.
+	 */
+	struct vclock terms_map;
+	/**
+	 * The biggest PROMOTE term seen by the instance and persisted in WAL.
+	 * It is related to raft term, but not the same. Synchronous replication
+	 * represented by the limbo is interested only in the won elections
+	 * ended with PROMOTE request.
+	 * It means the limbo's term might be smaller than the raft term, while
+	 * there are ongoing elections, or the leader is already known and this
+	 * instance hasn't read its PROMOTE request yet. During other times the
+	 * limbo and raft are in sync and the terms are the same.
+	 */
+	uint64_t terms_max;
+};
+
+/**
  * Limbo is a place where transactions are stored, which are
  * finished, but not committed nor rolled back. These are
  * synchronous transactions in progress of collecting ACKs from
@@ -130,23 +155,9 @@ struct txn_limbo {
 	 */
 	struct vclock vclock;
 	/**
-	 * Latest terms received with PROMOTE entries from remote instances.
-	 * Limbo uses them to filter out the transactions coming not from the
-	 * limbo owner, but so outdated that they are rolled back everywhere
-	 * except outdated nodes.
+	 * Track promote requests.
 	 */
-	struct vclock promote_term_map;
-	/**
-	 * The biggest PROMOTE term seen by the instance and persisted in WAL.
-	 * It is related to raft term, but not the same. Synchronous replication
-	 * represented by the limbo is interested only in the won elections
-	 * ended with PROMOTE request.
-	 * It means the limbo's term might be smaller than the raft term, while
-	 * there are ongoing elections, or the leader is already known and this
-	 * instance hasn't read its PROMOTE request yet. During other times the
-	 * limbo and raft are in sync and the terms are the same.
-	 */
-	uint64_t promote_greatest_term;
+	struct txn_limbo_terms terms;
 	/**
 	 * Maximal LSN gathered quorum and either already confirmed in WAL, or
 	 * whose confirmation is in progress right now. Any attempt to confirm
@@ -218,7 +229,8 @@ txn_limbo_last_entry(struct txn_limbo *limbo)
 static inline uint64_t
 txn_limbo_replica_term(const struct txn_limbo *limbo, uint32_t replica_id)
 {
-	return vclock_get(&limbo->promote_term_map, replica_id);
+	const struct txn_limbo_terms *tr = &limbo->terms;
+	return vclock_get(&tr->terms_map, replica_id);
 }
 
 /**
@@ -229,8 +241,9 @@ static inline bool
 txn_limbo_is_replica_outdated(const struct txn_limbo *limbo,
 			      uint32_t replica_id)
 {
+	const struct txn_limbo_terms *tr = &limbo->terms;
 	return txn_limbo_replica_term(limbo, replica_id) <
-	       limbo->promote_greatest_term;
+	       tr->terms_max;
 }
 
 /**
