@@ -348,6 +348,7 @@ CFORMAT(printf, 5, 6) extern sayfunc_t _say;
 
 #define panic_status(status, ...)	({ say(S_FATAL, NULL, __VA_ARGS__); exit(status); })
 #define panic(...)			panic_status(EXIT_FAILURE, __VA_ARGS__)
+#define panic_on(cond, ...)		if (cond) panic(__VA_ARGS__)
 #define panic_syserror(...)		({ say(S_FATAL, strerror(errno), __VA_ARGS__); exit(EXIT_FAILURE); })
 
 enum {
