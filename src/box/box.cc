@@ -1709,14 +1709,14 @@ box_promote(void)
 	if (!is_box_configured)
 		return 0;
 	if (txn_limbo_replica_term(&txn_limbo, instance_id) ==
-	    box_raft()->term)
+	    raft->term)
 		return 0;
-	bool run_elections = false;
-	bool try_wait = false;
-
 	switch (box_election_mode) {
 	case ELECTION_MODE_OFF:
-		try_wait = true;
+		if (box_try_wait_confirm(2 * replication_synchro_timeout) != 0)
+			return -1;
+		if (box_trigger_elections() != 0)
+			return -1;
 		break;
 	case ELECTION_MODE_VOTER:
 		assert(raft->state == RAFT_STATE_FOLLOWER);
@@ -1725,23 +1725,17 @@ box_promote(void)
 		return -1;
 	case ELECTION_MODE_MANUAL:
 	case ELECTION_MODE_CANDIDATE:
-		run_elections = raft->state != RAFT_STATE_LEADER;
+		if (raft->state != RAFT_STATE_LEADER &&
+		    box_run_elections() != 0) {
+			return -1;
+		}
 		break;
 	default:
 		unreachable();
 	}
 
-	int64_t wait_lsn = -1;
-
-	if (run_elections && box_run_elections() != 0)
-		return -1;
-	if (try_wait) {
-		if (box_try_wait_confirm(2 * replication_synchro_timeout) != 0)
-			return -1;
-		if (box_trigger_elections() != 0)
-			return -1;
-	}
-	if ((wait_lsn = box_wait_limbo_acked()) < 0)
+	int64_t wait_lsn = box_wait_limbo_acked();
+	if (wait_lsn < 0)
 		return -1;
 
 	box_issue_promote(txn_limbo.owner_id, wait_lsn);
