@@ -40,6 +40,7 @@ struct txn_limbo txn_limbo;
 static void
 txn_limbo_terms_create(struct txn_limbo_terms *tr)
 {
+	latch_create(&tr->latch);
 	vclock_create(&tr->terms_map);
 	tr->terms_max = 0;
 }
@@ -731,12 +732,14 @@ txn_limbo_wait_empty(struct txn_limbo *limbo, double timeout)
 }
 
 void
-txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
+txn_limbo_process_locked(struct txn_limbo *limbo,
+			 const struct synchro_request *req)
 {
 	struct txn_limbo_terms *tr = &limbo->terms;
 	uint64_t term = req->term;
 	uint32_t origin = req->origin_id;
-	if (txn_limbo_replica_term(limbo, origin) < term) {
+
+	if (txn_limbo_term_locked(limbo, origin) < term) {
 		vclock_follow(&tr->terms_map, origin, term);
 		if (term > tr->terms_max)
 			tr->terms_max = term;
@@ -792,6 +795,16 @@ txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
 		unreachable();
 	}
 	return;
+}
+
+void
+txn_limbo_process(struct txn_limbo *limbo,
+		  const struct synchro_request *req)
+{
+	txn_limbo_terms_lock(limbo);
+	txn_limbo_process_locked(limbo, req);
+	txn_limbo_terms_unlock(limbo);
+	return 0;
 }
 
 void
