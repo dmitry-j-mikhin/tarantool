@@ -1675,7 +1675,8 @@ box_issue_promote(uint32_t prev_leader_id, int64_t promote_lsn)
 		.lsn = promote_lsn,
 		.term = box_raft()->term,
 	};
-	txn_limbo_process(&txn_limbo, &req);
+	if (txn_limbo_process(&txn_limbo, &req) != 0)
+		diag_raise();
 	assert(txn_limbo_is_empty(&txn_limbo));
 }
 
@@ -1694,7 +1695,8 @@ box_issue_demote(uint32_t prev_leader_id, int64_t promote_lsn)
 		.lsn = promote_lsn,
 		.term = box_raft()->term,
 	};
-	txn_limbo_process(&txn_limbo, &req);
+	if (txn_limbo_process(&txn_limbo, &req) != 0)
+		diag_raise();
 	assert(txn_limbo_is_empty(&txn_limbo));
 }
 

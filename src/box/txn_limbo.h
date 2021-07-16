@@ -372,13 +372,20 @@ txn_limbo_ack(struct txn_limbo *limbo, uint32_t replica_id, int64_t lsn);
 int
 txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry);
 
+/**
+ * Verify if the request is valid for processing.
+ */
+int
+txn_limbo_filter_locked(struct txn_limbo *limbo,
+			const struct synchro_request *req);
+
 /** Execute a synchronous replication request. */
 void
 txn_limbo_process_locked(struct txn_limbo *limbo,
 			 const struct synchro_request *req);
 
 /** Lock limbo terms and execute a synchronous replication request. */
-void
+int
 txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req);
 
 /**

@@ -731,37 +731,287 @@ txn_limbo_wait_empty(struct txn_limbo *limbo, double timeout)
 	return 0;
 }
 
+enum filter_chain {
+	FILTER_IN,
+	FILTER_CONFIRM,
+	FILTER_ROLLBACK,
+	FILTER_PROMOTE,
+	FILTER_DEMOTE,
+	FILTER_MAX,
+};
+
+/**
+ * Common chain for any incoming packet.
+ */
+static int
+filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
+{
+	(void)limbo;
+
+	if (req->replica_id == REPLICA_ID_NIL) {
+		/*
+		 * The limbo was empty on the instance issuing
+		 * the request. This means this instance must
+		 * empty its limbo as well.
+		 */
+		if (req->lsn != 0 ||
+		    !iproto_type_is_promote_request(req->type)) {
+			say_info("RAFT: rejecting %s request from "
+				 "instance id %u for term %llu. "
+				 "req->replica_id = 0 but lsn %lld.",
+				 iproto_type_name(req->type),
+				 req->origin_id, (long long)req->term,
+				 (long long)req->lsn);
+
+			diag_set(ClientError, ER_UNSUPPORTED,
+				 "Replication",
+				 "empty replica_id with nonzero LSN");
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Filter CONFIRM and ROLLBACK packets.
+ */
+static int
+filter_confirm_rollback(struct txn_limbo *limbo,
+			const struct synchro_request *req)
+{
+	/*
+	 * When limbo is empty we have nothing to
+	 * confirm/commit and if this request comes
+	 * in it means the split brain has happened.
+	 */
+	if (!txn_limbo_is_empty(limbo))
+		return 0;
+
+	say_info("RAFT: rejecting %s request from "
+		 "instance id %u for term %llu. "
+		 "Empty limbo detected.",
+		 iproto_type_name(req->type),
+		 req->origin_id,
+		 (long long)req->term);
+
+	diag_set(ClientError, ER_UNSUPPORTED,
+		 "Replication",
+		 "confirm/rollback with empty limbo");
+	return -1;
+}
+
+/**
+ * Filter PROMOTE packets.
+ */
+static int
+filter_promote(struct txn_limbo *limbo, const struct synchro_request *req)
+{
+	struct txn_limbo_terms *tr = &limbo->terms;
+	int64_t promote_lsn = req->lsn;
+
+	/*
+	 * If the term is already seen it means it comes
+	 * from a node which didn't notice new elections,
+	 * thus been living in subdomain and its data is
+	 * no longer consistent.
+	 */
+	if (tr->terms_max > 1 && tr->terms_max > req->term) {
+		say_info("RAFT: rejecting %s request from "
+			 "instance id %u for term %llu. "
+			 "Max term seen is %llu.",
+			 iproto_type_name(req->type),
+			 req->origin_id,
+			 (long long)req->term,
+			 (long long)tr->terms_max);
+
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication", "obsolete terms");
+		return -1;
+	}
+
+	/*
+	 * Either the limbo is empty or new promote will
+	 * rollback all waiting transactions. Which
+	 * is fine.
+	 */
+	if (limbo->confirmed_lsn == 0 ||
+	    limbo->confirmed_lsn == promote_lsn)
+		return 0;
+
+	/*
+	 * Explicit split brain situation. Promote
+	 * comes in with an old LSN which we've already
+	 * processed.
+	 */
+	if (limbo->confirmed_lsn > promote_lsn) {
+		/*
+		 * If limbo is empty we're migrating
+		 * the owner.
+		 */
+		if (txn_limbo_is_empty(limbo))
+			return 0;
+
+		say_info("RAFT: rejecting %s request from "
+			 "instance id %u for term %llu. "
+			 "confirmed_lsn %lld > promote_lsn %lld.",
+			 iproto_type_name(req->type),
+			 req->origin_id, (long long)req->term,
+			 (long long)limbo->confirmed_lsn,
+			 (long long)promote_lsn);
+
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication",
+			 "backward promote LSN (split brain)");
+		return -1;
+	}
+
+	/*
+	 * The last case requires a few subcases.
+	 */
+	assert(limbo->confirmed_lsn < promote_lsn);
+
+	if (txn_limbo_is_empty(limbo)) {
+		/*
+		 * Transactions are already rolled back
+		 * since the limbo is empty.
+		 */
+		say_info("RAFT: rejecting %s request from "
+			 "instance id %u for term %llu. "
+			 "confirmed_lsn %lld < promote_lsn %lld "
+			 "and empty limbo.",
+			 iproto_type_name(req->type),
+			 req->origin_id, (long long)req->term,
+			 (long long)limbo->confirmed_lsn,
+			 (long long)promote_lsn);
+
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication",
+			 "forward promote LSN "
+			 "(empty limbo, split brain)");
+		return -1;
+	} else {
+		/*
+		 * Some entries are present in the limbo,
+		 * and if first entry's LSN is greater than
+		 * requested then old data either commited
+		 * or rolled back, so can't continue.
+		 */
+		struct txn_limbo_entry *first;
+
+		first = txn_limbo_first_entry(limbo);
+		if (first->lsn > promote_lsn) {
+			say_info("RAFT: rejecting %s request from "
+				 "instance id %u for term %llu. "
+				 "confirmed_lsn %lld < promote_lsn %lld "
+				 "and limbo first lsn %lld.",
+				 iproto_type_name(req->type),
+				 req->origin_id, (long long)req->term,
+				 (long long)limbo->confirmed_lsn,
+				 (long long)promote_lsn,
+				 (long long)first->lsn);
+
+			diag_set(ClientError, ER_UNSUPPORTED,
+				 "Replication",
+				 "promote LSN confilict "
+				 "(limbo LSN ahead, split brain)");
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Filter DEMOTE packets.
+ */
+static int
+filter_demote(struct txn_limbo *limbo, const struct synchro_request *req)
+{
+	(void)limbo;
+	(void)req;
+	return 0;
+}
+
+static int (*filter_req[FILTER_MAX])
+(struct txn_limbo *limbo, const struct synchro_request *req) = {
+	[FILTER_IN]		= filter_in,
+	[FILTER_CONFIRM]	= filter_confirm_rollback,
+	[FILTER_ROLLBACK]	= filter_confirm_rollback,
+	[FILTER_PROMOTE]	= filter_promote,
+	[FILTER_DEMOTE]		= filter_demote,
+};
+
+int
+txn_limbo_filter_locked(struct txn_limbo *limbo,
+			const struct synchro_request *req)
+{
+	unsigned int mask = (1u << FILTER_IN);
+	unsigned int pos = 0;
+
+	say_info("limbo: filter %s replica_id %u origin_id %u "
+		 "term %lld lsn %lld, queue owner_id %u len %lld "
+		 "confirmed_lsn %lld",
+		 iproto_type_name(req->type),
+		 req->replica_id, req->origin_id,
+		 (long long)req->term, (long long)req->lsn,
+		 limbo->owner_id, (long long)limbo->len,
+		 (long long)limbo->confirmed_lsn);
+
+	switch (req->type) {
+	case IPROTO_CONFIRM:
+		mask |= (1u << FILTER_CONFIRM);
+		break;
+	case IPROTO_ROLLBACK:
+		mask |= (1u << FILTER_ROLLBACK);
+		break;
+	case IPROTO_PROMOTE:
+		mask |= (1u << FILTER_PROMOTE);
+		break;
+	case IPROTO_DEMOTE:
+		mask |= (1u << FILTER_DEMOTE);
+		break;
+	default:
+		say_info("RAFT: rejecting unexpected %d "
+			 "request from instance id %u "
+			 "for term %llu.",
+			 req->type, req->origin_id,
+			 (long long)req->term);
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication",
+			 "unexpected request type");
+		return -1;
+	}
+
+	while (mask != 0) {
+		if ((mask & 1) != 0) {
+			assert(pos < lengthof(filter_req));
+			if (filter_req[pos](limbo, req) != 0)
+				return -1;
+		}
+		pos++;
+		mask >>= 1;
+	};
+
+	return 0;
+}
+
 void
 txn_limbo_process_locked(struct txn_limbo *limbo,
 			 const struct synchro_request *req)
 {
 	struct txn_limbo_terms *tr = &limbo->terms;
-	uint64_t term = req->term;
 	uint32_t origin = req->origin_id;
+	uint64_t term = req->term;
 
 	if (txn_limbo_term_locked(limbo, origin) < term) {
 		vclock_follow(&tr->terms_map, origin, term);
 		if (term > tr->terms_max)
 			tr->terms_max = term;
-	} else if (iproto_type_is_promote_request(req->type) &&
-		   tr->terms_max > 1) {
-		/* PROMOTE for outdated term. Ignore. */
-		say_info("RAFT: ignoring %s request from instance "
-			 "id %u for term %llu. Greatest term seen "
-			 "before (%llu) is bigger.",
-			 iproto_type_name(req->type), origin, (long long)term,
-			 (long long)tr->terms_max);
-		return;
 	}
 
 	int64_t lsn = req->lsn;
-	if (req->replica_id == REPLICA_ID_NIL) {
-		/*
-		 * The limbo was empty on the instance issuing the request.
-		 * This means this instance must empty its limbo as well.
-		 */
-		assert(lsn == 0 && iproto_type_is_promote_request(req->type));
-	} else if (req->replica_id != limbo->owner_id) {
+	if (req->replica_id != limbo->owner_id) {
 		/*
 		 * Ignore CONFIRM/ROLLBACK messages for a foreign master.
 		 * These are most likely outdated messages for already confirmed
@@ -794,14 +1044,15 @@ txn_limbo_process_locked(struct txn_limbo *limbo,
 	default:
 		unreachable();
 	}
-	return;
 }
 
-void
+int
 txn_limbo_process(struct txn_limbo *limbo,
 		  const struct synchro_request *req)
 {
 	txn_limbo_terms_lock(limbo);
+	if (txn_limbo_filter_locked(limbo, req) != 0)
+		return -1;
 	txn_limbo_process_locked(limbo, req);
 	txn_limbo_terms_unlock(limbo);
 	return 0;

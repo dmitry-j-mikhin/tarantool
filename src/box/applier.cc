@@ -458,7 +458,8 @@ applier_wait_snapshot(struct applier *applier)
 				struct synchro_request req;
 				if (xrow_decode_synchro(&row, &req) != 0)
 					diag_raise();
-				txn_limbo_process(&txn_limbo, &req);
+				if (txn_limbo_process(&txn_limbo, &req) != 0)
+					diag_raise();
 			} else if (iproto_type_is_raft_request(row.type)) {
 				struct raft_request req;
 				if (xrow_decode_raft(&row, &req, NULL) != 0)
@@ -873,6 +874,9 @@ apply_synchro_row(uint32_t replica_id, struct xrow_header *row)
 		goto err;
 
 	txn_limbo_terms_lock(&txn_limbo);
+	if (txn_limbo_filter_locked(&txn_limbo, &req) != 0)
+		goto err_unlock;
+
 	struct replica_cb_data rcb_data;
 	struct synchro_entry entry;
 	/*
