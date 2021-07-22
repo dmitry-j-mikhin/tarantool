@@ -1110,7 +1110,8 @@ applier_synchro_filter_tx(struct stailq *rows)
 	 */
 	if (iproto_type_is_promote_request(row->type))
 		return;
-nopify:;
+nopify:
+	say_info("limbo: nopify");
 	struct applier_tx_row *item;
 	stailq_foreach_entry(item, rows, next) {
 		row = &item->row;
@@ -1500,6 +1501,7 @@ applier_f(va_list ap)
 			unreachable();
 			return 0;
 		} catch (ClientError *e) {
+			diag_log();
 			if (e->errcode() == ER_CONNECTION_TO_SELF &&
 			    tt_uuid_is_equal(&applier->uuid, &INSTANCE_UUID)) {
 				/* Connection to itself, stop applier */
@@ -1551,6 +1553,7 @@ applier_f(va_list ap)
 				return -1;
 			}
 		} catch (XlogGapError *e) {
+			diag_log();
 			/*
 			 * Xlog gap error can't be a critical error. Because it
 			 * is totally normal during bootstrap. Consider the
@@ -1577,6 +1580,7 @@ applier_f(va_list ap)
 			applier_disconnect(applier, APPLIER_LOADING);
 			goto reconnect;
 		} catch (FiberIsCancelled *e) {
+			diag_log();
 			if (!diag_is_empty(&applier->diag)) {
 				diag_move(&applier->diag, &fiber()->diag);
 				applier_disconnect(applier, APPLIER_STOPPED);
@@ -1585,14 +1589,17 @@ applier_f(va_list ap)
 			applier_disconnect(applier, APPLIER_OFF);
 			break;
 		} catch (SocketError *e) {
+			diag_log();
 			applier_log_error(applier, e);
 			applier_disconnect(applier, APPLIER_DISCONNECTED);
 			goto reconnect;
 		} catch (SystemError *e) {
+			diag_log();
 			applier_log_error(applier, e);
 			applier_disconnect(applier, APPLIER_DISCONNECTED);
 			goto reconnect;
 		} catch (Exception *e) {
+			diag_log();
 			applier_log_error(applier, e);
 			applier_disconnect(applier, APPLIER_STOPPED);
 			return -1;

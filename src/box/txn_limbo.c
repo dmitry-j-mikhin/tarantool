@@ -835,8 +835,7 @@ filter_promote(struct txn_limbo *limbo, const struct synchro_request *req)
 	 * rollback all waiting transactions. Which
 	 * is fine.
 	 */
-	if (limbo->confirmed_lsn == 0 ||
-	    limbo->confirmed_lsn == promote_lsn)
+	if (limbo->confirmed_lsn == promote_lsn)
 		return 0;
 
 	/*

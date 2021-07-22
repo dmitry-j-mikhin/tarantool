@@ -1246,6 +1246,8 @@ box_sync_replication(bool connect_quorum)
 			applier_delete(appliers[i]); /* doesn't affect diag */
 	});
 
+	say_info("%s: count %d connect_quorum %d",
+		 __func__, count, connect_quorum);
 	replicaset_connect(appliers, count, connect_quorum);
 
 	guard.is_active = false;
