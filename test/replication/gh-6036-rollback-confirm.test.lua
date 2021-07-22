@@ -64,23 +64,22 @@ box.space.sync:select{}
 test_run:switch('master')
 box.cfg({                                       \
     replication = {                             \
-            "unix/:./master.sock",              \
             "unix/:./replica.sock",             \
     },                                          \
 })
 box.space.sync:select{}
 
+----
+---- Connect replica back to the master.
+--test_run:switch('replica')
+--box.cfg({                                       \
+--    replication = {                             \
+--            "unix/:./master.sock",              \
+--            "unix/:./replica.sock",             \
+--    },                                          \
+--})
+--box.space.sync:select{}
 --
--- Connect replica back to the master.
-test_run:switch('replica')
-box.cfg({                                       \
-    replication = {                             \
-            "unix/:./master.sock",              \
-            "unix/:./replica.sock",             \
-    },                                          \
-})
-box.space.sync:select{}
-
 test_run:switch('default')
 test_run:cmd('stop server master')
 --test_run:cmd('delete server master')
