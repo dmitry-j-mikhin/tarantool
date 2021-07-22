@@ -305,6 +305,10 @@ iproto_type_name(uint16_t type)
 	 */
 	if (type == IPROTO_NOP)
 		return "NOP";
+	else if (type == IPROTO_OK)
+		return "OK";
+	else if (type == IPROTO_CALL_16)
+		return "CALL_16";
 
 	if (type < IPROTO_TYPE_STAT_MAX)
 		return iproto_type_strs[type];
@@ -320,6 +324,24 @@ iproto_type_name(uint16_t type)
 		return "CONFIRM";
 	case IPROTO_ROLLBACK:
 		return "ROLLBACK";
+	case IPROTO_PING:
+		return "PING";
+	case IPROTO_JOIN:
+		return "JOIN";
+	case IPROTO_SUBSCRIBE:
+		return "SUBSCRIBE";
+	case IPROTO_VOTE_DEPRECATED:
+		return "VOTE_DEPRECATED";
+	case IPROTO_VOTE:
+		return "VOTE";
+	case IPROTO_FETCH_SNAPSHOT:
+		return "FETCH_SNAPSHOT";
+	case IPROTO_REGISTER:
+		return "REGISTER";
+	case IPROTO_JOIN_META:
+		return "JOIN_META";
+	case IPROTO_JOIN_SNAPSHOT:
+		return "JOIN_SNAPSHOT";
 	case VY_INDEX_RUN_INFO:
 		return "RUNINFO";
 	case VY_INDEX_PAGE_INFO:

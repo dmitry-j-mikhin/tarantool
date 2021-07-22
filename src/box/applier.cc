@@ -70,8 +70,8 @@ static inline void
 applier_set_state(struct applier *applier, enum applier_state state)
 {
 	applier->state = state;
-	say_debug("=> %s", applier_state_strs[state] +
-		  strlen("APPLIER_"));
+	say_info("applier => %s", applier_state_strs[state] +
+		 strlen("APPLIER_"));
 	trigger_run_xc(&applier->on_state, applier);
 }
 
@@ -664,7 +664,7 @@ applier_read_tx_row(struct applier *applier, double timeout)
 	ERROR_INJECT_YIELD(ERRINJ_APPLIER_READ_TX_ROW_DELAY);
 
 	coio_read_xrow_timeout_xc(coio, ibuf, row, timeout);
-
+	say_xrow(row);
 	applier->lag = ev_now(loop()) - row->tm;
 	applier->last_row_time = ev_monotonic_now(loop());
 	return tx_row;

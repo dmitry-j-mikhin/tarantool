@@ -31,11 +31,13 @@
 
 #include "xstream.h"
 #include "exception.h"
+#include "xrow.h"
 
 int
 xstream_write(struct xstream *stream, struct xrow_header *row)
 {
 	try {
+		say_xrow(row);
 		stream->write(stream, row);
 	} catch (Exception *e) {
 		return -1;

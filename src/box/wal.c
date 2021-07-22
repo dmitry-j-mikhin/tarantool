@@ -1020,6 +1020,7 @@ wal_assign_lsn(struct vclock *vclock_diff, struct vclock *base,
 				vclock_follow(vclock_diff, (*row)->replica_id, diff);
 			}
 		}
+		say_xrow(*row);
 	}
 
 	/*

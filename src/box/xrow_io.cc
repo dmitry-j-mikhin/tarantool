@@ -60,6 +60,7 @@ coio_read_xrow(struct ev_io *coio, struct ibuf *in, struct xrow_header *row)
 
 	xrow_header_decode_xc(row, (const char **) &in->rpos, in->rpos + len,
 			      true);
+	say_xrow(row);
 }
 
 void
@@ -99,6 +100,7 @@ void
 coio_write_xrow(struct ev_io *coio, const struct xrow_header *row)
 {
 	struct iovec iov[XROW_IOVMAX];
+	say_xrow(row);
 	int iovcnt = xrow_to_iovec_xc(row, iov);
 	coio_writev(coio, iov, iovcnt, 0);
 }

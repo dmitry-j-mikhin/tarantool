@@ -109,6 +109,22 @@ struct xrow_header {
 	struct iovec body[XROW_BODY_IOVMAX];
 };
 
+#include "iproto_constants.h"
+
+#define say_xrow(r)						\
+do {								\
+	say_info("%s:%d row type %s replica_id %u "		\
+		 "group_id %u sync %llu lsn %lld "		\
+		 "tsn %lld flags %#x",				\
+		 __func__, __LINE__,				\
+		 iproto_type_name((r)->type),			\
+		 (r)->replica_id, (r)->group_id,		\
+		 (long long)(r)->sync,				\
+		 (long long)(r)->lsn,				\
+		 (long long)(r)->tsn,				\
+		 (r)->flags);					\
+} while (0)
+
 /**
  * Return the max size which the given row is going to take when
  * encoded into a binary packet.
