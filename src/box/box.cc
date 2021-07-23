@@ -3309,10 +3309,13 @@ local_recovery(const struct tt_uuid *instance_uuid,
 
 	say_info("instance uuid %s", tt_uuid_str(&INSTANCE_UUID));
 
+	txn_limbo_filter_disable(&txn_limbo);
+
 	struct wal_stream wal_stream;
 	wal_stream_create(&wal_stream);
 	auto stream_guard = make_scoped_guard([&]{
 		wal_stream_abort(&wal_stream);
+		txn_limbo_filter_enable(&txn_limbo);
 	});
 
 	struct recovery *recovery;
@@ -3328,6 +3331,7 @@ local_recovery(const struct tt_uuid *instance_uuid,
 	auto guard = make_scoped_guard([&]{
 		box_vclock = &replicaset.vclock;
 		recovery_delete(recovery);
+		txn_limbo_filter_enable(&txn_limbo);
 	});
 
 	/*

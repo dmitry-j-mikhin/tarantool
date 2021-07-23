@@ -621,11 +621,6 @@ applier_join(struct applier *applier)
 	struct xrow_header row;
 	uint64_t row_count;
 
-	auto join_guard = make_scoped_guard([&] {
-		txn_limbo_filter_enable(&txn_limbo);
-	});
-
-	txn_limbo_filter_disable(&txn_limbo);
 	xrow_encode_join_xc(&row, &INSTANCE_UUID);
 	coio_write_xrow(coio, &row);
 
@@ -1474,6 +1469,7 @@ applier_f(va_list ap)
 	/* Re-connect loop */
 	while (!fiber_is_cancelled()) {
 		try {
+			txn_limbo_filter_disable(&txn_limbo);
 			applier_connect(applier);
 			if (tt_uuid_is_nil(&REPLICASET_UUID)) {
 				/*
@@ -1498,6 +1494,7 @@ applier_f(va_list ap)
 				 */
 				applier_register(applier, was_anon);
 			}
+			txn_limbo_filter_enable(&txn_limbo);
 			applier_subscribe(applier);
 			/*
 			 * subscribe() has an infinite loop which
@@ -1506,6 +1503,7 @@ applier_f(va_list ap)
 			unreachable();
 			return 0;
 		} catch (ClientError *e) {
+			txn_limbo_filter_enable(&txn_limbo);
 			diag_log();
 			if (e->errcode() == ER_CONNECTION_TO_SELF &&
 			    tt_uuid_is_equal(&applier->uuid, &INSTANCE_UUID)) {
