@@ -196,7 +196,13 @@ struct txn_limbo {
 	 */
 	bool is_in_rollback;
 	/**
-	 * Where the limbo should filter incoming requests.
+	 * Where the limbo should filter incoming requests. On applier's
+	 * join phases we are in complete trust of incoming data because
+	 * this data forms the initial limbo state. Once joining is
+	 * complete we should enable incoming requests filtering. The
+	 * fact of "joining" impliest that this mode is for the case
+	 * where node is not a leader and rather a replica fetching
+	 * external data.
 	 */
 	bool is_filtering;
 };
