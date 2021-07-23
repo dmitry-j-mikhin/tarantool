@@ -93,6 +93,7 @@ coio_read_xrow_timeout_xc(struct ev_io *coio, struct ibuf *in,
 
 	xrow_header_decode_xc(row, (const char **) &in->rpos, in->rpos + len,
 			      true);
+	say_xrow(row);
 }
 
 

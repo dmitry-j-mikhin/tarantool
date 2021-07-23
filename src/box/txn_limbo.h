@@ -195,6 +195,10 @@ struct txn_limbo {
 	 * by the 'reversed rollback order' rule - contradiction.
 	 */
 	bool is_in_rollback;
+	/**
+	 * Where the limbo should filter incoming requests.
+	 */
+	bool is_filtering;
 };
 
 /**
@@ -387,6 +391,20 @@ txn_limbo_process_locked(struct txn_limbo *limbo,
 /** Lock limbo terms and execute a synchronous replication request. */
 int
 txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req);
+
+static inline void
+txn_limbo_filter_enable(struct txn_limbo *limbo)
+{
+	limbo->is_filtering = true;
+	say_info("limbo: filter enabled");
+}
+
+static inline void
+txn_limbo_filter_disable(struct txn_limbo *limbo)
+{
+	limbo->is_filtering = false;
+	say_info("limbo: filter disabled");
+}
 
 /**
  * Waiting for confirmation of all "sync" transactions

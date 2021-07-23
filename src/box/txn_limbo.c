@@ -57,6 +57,7 @@ txn_limbo_create(struct txn_limbo *limbo)
 	limbo->confirmed_lsn = 0;
 	limbo->rollback_count = 0;
 	limbo->is_in_rollback = false;
+	limbo->is_filtering = true;
 }
 
 bool
@@ -956,6 +957,9 @@ txn_limbo_filter_locked(struct txn_limbo *limbo,
 		 (long long)req->term, (long long)req->lsn,
 		 limbo->owner_id, (long long)limbo->len,
 		 (long long)limbo->confirmed_lsn);
+
+	if (!limbo->is_filtering)
+		return 0;
 
 	switch (req->type) {
 	case IPROTO_CONFIRM:
