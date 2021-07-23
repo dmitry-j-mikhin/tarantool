@@ -130,7 +130,6 @@ test_run:switch('master')
  | ...
 box.cfg({                                       \
     replication = {                             \
-            "unix/:./master.sock",              \
             "unix/:./replica.sock",             \
     },                                          \
 })
@@ -141,25 +140,17 @@ box.space.sync:select{}
  | - []
  | ...
 
+----
+---- Connect replica back to the master.
+--test_run:switch('replica')
+--box.cfg({                                       \
+--    replication = {                             \
+--            "unix/:./master.sock",              \
+--            "unix/:./replica.sock",             \
+--    },                                          \
+--})
+--box.space.sync:select{}
 --
--- Connect replica back to the master.
-test_run:switch('replica')
- | ---
- | - true
- | ...
-box.cfg({                                       \
-    replication = {                             \
-            "unix/:./master.sock",              \
-            "unix/:./replica.sock",             \
-    },                                          \
-})
- | ---
- | ...
-box.space.sync:select{}
- | ---
- | - - [1]
- | ...
-
 test_run:switch('default')
  | ---
  | - true
