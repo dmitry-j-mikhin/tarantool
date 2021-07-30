@@ -184,6 +184,14 @@ struct txn_limbo {
 	 * by the 'reversed rollback order' rule - contradiction.
 	 */
 	bool is_in_rollback;
+	/**
+	 * Whether the limbo should filter incoming requests.
+	 * The phases of local recovery from WAL file and on applier's
+	 * join phase we are in complete trust of incoming data because
+	 * this data forms an initial limbo state and should not
+	 * filter out requests.
+	 */
+	bool is_filtering;
 };
 
 /**
@@ -355,14 +363,37 @@ txn_limbo_ack(struct txn_limbo *limbo, uint32_t replica_id, int64_t lsn);
 int
 txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry);
 
+/**
+ * Verify if the request is valid for processing.
+ */
+int
+txn_limbo_filter_locked(struct txn_limbo *limbo,
+			const struct synchro_request *req);
+
 /** Execute a synchronous replication request. */
 void
 txn_limbo_process_locked(struct txn_limbo *limbo,
 			 const struct synchro_request *req);
 
 /** Lock limbo terms and execute a synchronous replication request. */
-void
+int
 txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req);
+
+/** Enable filtering of synchro requests. */
+static inline void
+txn_limbo_filter_enable(struct txn_limbo *limbo)
+{
+	limbo->is_filtering = true;
+	say_info("limbo: filter enabled");
+}
+
+/** Disable filtering of synchro requests. */
+static inline void
+txn_limbo_filter_disable(struct txn_limbo *limbo)
+{
+	limbo->is_filtering = false;
+	say_info("limbo: filter disabled");
+}
 
 /**
  * Waiting for confirmation of all "sync" transactions
