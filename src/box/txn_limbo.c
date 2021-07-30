@@ -46,7 +46,8 @@ txn_limbo_create(struct txn_limbo *limbo)
 	fiber_cond_create(&limbo->wait_cond);
 	vclock_create(&limbo->vclock);
 	vclock_create(&limbo->promote_term_map);
-	limbo->promote_greatest_term = 0;
+	limbo->promote_term_max = 0;
+	latch_create(&limbo->promote_latch);
 	limbo->confirmed_lsn = 0;
 	limbo->rollback_count = 0;
 	limbo->is_in_rollback = false;
@@ -308,7 +309,7 @@ txn_limbo_checkpoint(const struct txn_limbo *limbo,
 	req->type = IPROTO_PROMOTE;
 	req->replica_id = limbo->owner_id;
 	req->lsn = limbo->confirmed_lsn;
-	req->term = limbo->promote_greatest_term;
+	req->term = limbo->promote_term_max;
 }
 
 static void
@@ -724,22 +725,23 @@ txn_limbo_wait_empty(struct txn_limbo *limbo, double timeout)
 }
 
 void
-txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
+txn_limbo_process_locked(struct txn_limbo *limbo,
+			 const struct synchro_request *req)
 {
 	uint64_t term = req->term;
 	uint32_t origin = req->origin_id;
-	if (txn_limbo_replica_term(limbo, origin) < term) {
+	if (txn_limbo_term_locked(limbo, origin) < term) {
 		vclock_follow(&limbo->promote_term_map, origin, term);
-		if (term > limbo->promote_greatest_term)
-			limbo->promote_greatest_term = term;
+		if (term > limbo->promote_term_max)
+			limbo->promote_term_max = term;
 	} else if (iproto_type_is_promote_request(req->type) &&
-		   limbo->promote_greatest_term > 1) {
+		   limbo->promote_term_max > 1) {
 		/* PROMOTE for outdated term. Ignore. */
 		say_info("RAFT: ignoring %s request from instance "
 			 "id %u for term %llu. Greatest term seen "
 			 "before (%llu) is bigger.",
 			 iproto_type_name(req->type), origin, (long long)term,
-			 (long long)limbo->promote_greatest_term);
+			 (long long)limbo->promote_term_max);
 		return;
 	}
 
@@ -784,6 +786,15 @@ txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
 		unreachable();
 	}
 	return;
+}
+
+void
+txn_limbo_process(struct txn_limbo *limbo,
+		  const struct synchro_request *req)
+{
+	txn_limbo_term_lock(limbo);
+	txn_limbo_process_locked(limbo, req);
+	txn_limbo_term_unlock(limbo);
 }
 
 void

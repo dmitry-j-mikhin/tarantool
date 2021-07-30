@@ -31,6 +31,7 @@
  */
 #include "small/rlist.h"
 #include "vclock/vclock.h"
+#include "latch.h"
 
 #include <stdint.h>
 
@@ -146,7 +147,11 @@ struct txn_limbo {
 	 * instance hasn't read its PROMOTE request yet. During other times the
 	 * limbo and raft are in sync and the terms are the same.
 	 */
-	uint64_t promote_greatest_term;
+	uint64_t promote_term_max;
+	/**
+	 * To order access to the promote data.
+	 */
+	struct latch promote_latch;
 	/**
 	 * Maximal LSN gathered quorum and either already confirmed in WAL, or
 	 * whose confirmation is in progress right now. Any attempt to confirm
@@ -211,14 +216,61 @@ txn_limbo_last_entry(struct txn_limbo *limbo)
 				in_queue);
 }
 
+/** Lock promote data. */
+static inline void
+txn_limbo_term_lock(struct txn_limbo *limbo)
+{
+	latch_lock(&limbo->promote_latch);
+}
+
+/** Unlock promote data. */
+static void
+txn_limbo_term_unlock(struct txn_limbo *limbo)
+{
+	latch_unlock(&limbo->promote_latch);
+}
+
+/** Test if promote data is locked. */
+static inline bool
+txn_limbo_term_is_locked(const struct txn_limbo *limbo)
+{
+	return latch_is_locked(&limbo->promote_latch);
+}
+
+/** Fetch replica's term with lock taken. */
+static inline uint64_t
+txn_limbo_term_locked(struct txn_limbo *limbo, uint32_t replica_id)
+{
+	panic_on(!txn_limbo_term_is_locked(limbo),
+		 "limbo: unlocked term read for replica_id %u",
+		 replica_id);
+	return vclock_get(&limbo->promote_term_map, replica_id);
+}
+
 /**
  * Return the latest term as seen in PROMOTE requests from instance with id
  * @a replica_id.
  */
 static inline uint64_t
-txn_limbo_replica_term(const struct txn_limbo *limbo, uint32_t replica_id)
+txn_limbo_term(struct txn_limbo *limbo, uint32_t replica_id)
 {
-	return vclock_get(&limbo->promote_term_map, replica_id);
+	txn_limbo_term_lock(limbo);
+	uint64_t v = txn_limbo_term_locked(limbo, replica_id);
+	txn_limbo_term_unlock(limbo);
+	return v;
+}
+
+/**
+ * Fiber's preempt not safe read of @a terms_max.
+ *
+ * Use it if you're interested in current value
+ * only and ready that the value is getting updated
+ * if after the read yield happens.
+ */
+static inline uint64_t
+txn_limbo_term_max_raw(struct txn_limbo *limbo)
+{
+	return limbo->promote_term_max;
 }
 
 /**
@@ -226,11 +278,14 @@ txn_limbo_replica_term(const struct txn_limbo *limbo, uint32_t replica_id)
  * data from it. The check is only valid when elections are enabled.
  */
 static inline bool
-txn_limbo_is_replica_outdated(const struct txn_limbo *limbo,
+txn_limbo_is_replica_outdated(struct txn_limbo *limbo,
 			      uint32_t replica_id)
 {
-	return txn_limbo_replica_term(limbo, replica_id) <
-	       limbo->promote_greatest_term;
+	txn_limbo_term_lock(limbo);
+	bool res = txn_limbo_term_locked(limbo, replica_id) <
+		limbo->promote_term_max;
+	txn_limbo_term_unlock(limbo);
+	return res;
 }
 
 /**
@@ -301,6 +356,11 @@ int
 txn_limbo_wait_complete(struct txn_limbo *limbo, struct txn_limbo_entry *entry);
 
 /** Execute a synchronous replication request. */
+void
+txn_limbo_process_locked(struct txn_limbo *limbo,
+			 const struct synchro_request *req);
+
+/** Lock limbo terms and execute a synchronous replication request. */
 void
 txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req);
 

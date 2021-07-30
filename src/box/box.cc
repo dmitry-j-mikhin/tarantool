@@ -1573,7 +1573,7 @@ box_run_elections(void)
 static int
 box_check_promote_term_intact(uint64_t promote_term)
 {
-	if (txn_limbo.promote_greatest_term != promote_term) {
+	if (txn_limbo_term_max_raw(&txn_limbo) != promote_term) {
 		diag_set(ClientError, ER_INTERFERING_PROMOTE,
 			 txn_limbo.owner_id);
 		return -1;
@@ -1585,7 +1585,7 @@ box_check_promote_term_intact(uint64_t promote_term)
 static int
 box_trigger_elections(void)
 {
-	uint64_t promote_term = txn_limbo.promote_greatest_term;
+	uint64_t promote_term = txn_limbo_term_max_raw(&txn_limbo);
 	raft_new_term(box_raft());
 	if (box_raft_wait_term_persisted() < 0)
 		return -1;
@@ -1596,7 +1596,7 @@ box_trigger_elections(void)
 static int
 box_try_wait_confirm(double timeout)
 {
-	uint64_t promote_term = txn_limbo.promote_greatest_term;
+	uint64_t promote_term = txn_limbo_term_max_raw(&txn_limbo);
 	txn_limbo_wait_empty(&txn_limbo, timeout);
 	return box_check_promote_term_intact(promote_term);
 }
@@ -1612,7 +1612,7 @@ box_wait_limbo_acked(void)
 	if (txn_limbo_is_empty(&txn_limbo))
 		return txn_limbo.confirmed_lsn;
 
-	uint64_t promote_term = txn_limbo.promote_greatest_term;
+	uint64_t promote_term = txn_limbo_term_max_raw(&txn_limbo);
 	int quorum = replication_synchro_quorum;
 	struct txn_limbo_entry *last_entry;
 	last_entry = txn_limbo_last_synchro_entry(&txn_limbo);
@@ -1728,7 +1728,7 @@ box_promote(void)
 	 * Currently active leader (the instance that is seen as leader by both
 	 * raft and txn_limbo) can't issue another PROMOTE.
 	 */
-	bool is_leader = txn_limbo_replica_term(&txn_limbo, instance_id) ==
+	bool is_leader = txn_limbo_term(&txn_limbo, instance_id) ==
 			 raft->term && txn_limbo.owner_id == instance_id;
 	if (box_election_mode != ELECTION_MODE_OFF)
 		is_leader = is_leader && raft->state == RAFT_STATE_LEADER;
@@ -1784,7 +1784,7 @@ box_demote(void)
 		return 0;
 
 	/* Currently active leader is the only one who can issue a DEMOTE. */
-	bool is_leader = txn_limbo_replica_term(&txn_limbo, instance_id) ==
+	bool is_leader = txn_limbo_term(&txn_limbo, instance_id) ==
 			 box_raft()->term && txn_limbo.owner_id == instance_id;
 	if (box_election_mode != ELECTION_MODE_OFF)
 		is_leader = is_leader && box_raft()->state == RAFT_STATE_LEADER;
