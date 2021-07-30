@@ -47,6 +47,7 @@ txn_limbo_create(struct txn_limbo *limbo)
 	vclock_create(&limbo->vclock);
 	vclock_create(&limbo->promote_term_map);
 	limbo->promote_greatest_term = 0;
+	latch_create(&limbo->promote_latch);
 	limbo->confirmed_lsn = 0;
 	limbo->rollback_count = 0;
 	limbo->is_in_rollback = false;
@@ -724,11 +725,14 @@ txn_limbo_wait_empty(struct txn_limbo *limbo, double timeout)
 }
 
 void
-txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
+txn_limbo_process_locked(struct txn_limbo *limbo,
+			 const struct synchro_request *req)
 {
+	assert(latch_is_locked(&limbo->promote_latch));
+
 	uint64_t term = req->term;
 	uint32_t origin = req->origin_id;
-	if (txn_limbo_replica_term(limbo, origin) < term) {
+	if (txn_limbo_replica_term_locked(limbo, origin) < term) {
 		vclock_follow(&limbo->promote_term_map, origin, term);
 		if (term > limbo->promote_greatest_term)
 			limbo->promote_greatest_term = term;
@@ -784,6 +788,15 @@ txn_limbo_process(struct txn_limbo *limbo, const struct synchro_request *req)
 		unreachable();
 	}
 	return;
+}
+
+void
+txn_limbo_process(struct txn_limbo *limbo,
+		  const struct synchro_request *req)
+{
+	txn_limbo_term_lock(limbo);
+	txn_limbo_process_locked(limbo, req);
+	txn_limbo_term_unlock(limbo);
 }
 
 void
