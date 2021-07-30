@@ -856,7 +856,7 @@ apply_synchro_row_cb(struct journal_entry *entry)
 		applier_rollback_by_wal_io(entry->res);
 	} else {
 		replica_txn_wal_write_cb(synchro_entry->rcb);
-		txn_limbo_process(&txn_limbo, synchro_entry->req);
+		txn_limbo_process_locked(&txn_limbo, synchro_entry->req);
 		trigger_run(&replicaset.applier.on_wal_write, NULL);
 	}
 	fiber_wakeup(synchro_entry->owner);
@@ -867,11 +867,13 @@ static int
 apply_synchro_row(uint32_t replica_id, struct xrow_header *row)
 {
 	assert(iproto_type_is_synchro_request(row->type));
+	int rc = 0;
 
 	struct synchro_request req;
 	if (xrow_decode_synchro(row, &req) != 0)
 		goto err;
 
+	txn_limbo_term_lock(&txn_limbo);
 	struct replica_cb_data rcb_data;
 	struct synchro_entry entry;
 	/*
@@ -908,7 +910,9 @@ apply_synchro_row(uint32_t replica_id, struct xrow_header *row)
 	 * before trying to commit. But that requires extra steps from the
 	 * transactions side, including the async ones.
 	 */
-	if (journal_write(&entry.base) != 0)
+	rc = journal_write(&entry.base);
+	txn_limbo_term_unlock(&txn_limbo);
+	if (rc != 0)
 		goto err;
 	if (entry.base.res < 0) {
 		diag_set_journal_res(entry.base.res);
