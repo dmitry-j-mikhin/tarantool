@@ -142,7 +142,7 @@ local module_cfg_type = {
 -- forget to update it when add a new type or a combination of
 -- types here.
 local template_cfg = {
-    listen              = 'string, number',
+    listen              = 'string, number, table',
     memtx_memory        = 'number',
     strip_core          = 'boolean',
     memtx_min_tuple_size  = 'number',
@@ -234,10 +234,286 @@ local function normalize_uri_list(port_list)
     return result
 end
 
+local function trim(s)
+   s = s:gsub("^" .. "%s+", "")
+   return s
+end
+
+-- Check that there are only valid options in URI table
+-- and there values are also valid.
+local function check_uri_options(option, uri_option_values, valid_uri_option_values)
+    for _, opt_val in pairs(uri_option_values) do
+        if not valid_uri_option_values[opt_val] then
+            box.error(box.error.CFG, 'listen', 'invalid option value \'' ..
+                      opt_val .. '\' for URI \'' .. option .. '\' option')
+        end
+    end
+end
+
+-- Check that there are only valid options in URI table,
+-- and all of them have `table` type. Also check that URI
+-- is not empty and has 'string' type.
+local function check_uri_in_table_format(uri_with_options_table)
+    local valid_options = {
+        ["transport"] = {
+            ["plain"] = true,
+        },
+    }
+    local uri_is_empty = false
+    if not uri_with_options_table["uri"] then
+        box.error(box.error.CFG, 'listen', "missing URI")
+    elseif type(uri_with_options_table["uri"]) ~= 'string' then
+        box.error(box.error.CFG, 'listen', 'URI should be a string')
+    elseif uri_with_options_table["uri"] == "" then
+        uri_is_empty = true
+    end
+
+    for key, value in pairs(uri_with_options_table) do
+        if key ~= "uri" then
+            if not valid_options[key] then
+                box.error(box.error.CFG, 'listen', 'invalid option name \'' ..
+                          key .. '\' for URI')
+            elseif type(value) ~= 'table' then
+                box.error(box.error.CFG, 'listen', 'URI option should be a ' ..
+                          'table')
+            elseif uri_is_empty then
+                 box.error(box.error.CFG, 'listen', 'empty URI cannot ' ..
+                           'have options')
+            end
+            check_uri_options(key, value, valid_options[key])
+        end
+    end
+end
+
+-- Check that there is no dublicate listen URI in result
+-- URI table. If the table size is more than one, then
+-- there should not be empty URIs in it.
+-- Return uris_table as is if there is no empty URI, otherwise
+-- return nil or call `box.error` depends on table size.
+local function check_uris_table_and_return(uris_table)
+    local uris = {}
+    local was_empty = false
+    local uri_count = 0
+    for _, uri_in_table_format in pairs(uris_table) do
+        local uri = uri_in_table_format["uri"]
+        if uris[uri] then
+            box.error(box.error.CFG, 'listen', 'dublicate listen URI')
+        elseif not uri then
+            was_empty = true
+        end
+        uri_count = uri_count + 1
+        uris[uri] = true
+    end
+    if was_empty and uri_count > 1 then
+        box.error(box.error.CFG, 'listen', 'URI should not be empty ' ..
+                  'if it is not the only one')
+    elseif was_empty then
+        return nil
+    end
+    return uris_table
+end
+
+-- This function accepts string that contains URI with
+-- or without options, which can have 'string' or 'table'
+-- type. Converts all string options to tables.
+local function parse_uris_with_options_table(port)
+    local uri_with_options_table = {}
+    for opt, opt_vals in pairs(port) do
+        if opt ~= 'uri' then
+            if type(opt_vals) ~= 'table' then
+                opt_vals = tostring(opt_vals)
+            end
+            if type(opt_vals) == 'string' then
+                opt_vals = opt_vals:split(';')
+                local tmp_opt_vals = {}
+                for _, opt_val in pairs(opt_vals) do
+                    opt_val = trim(opt_val)
+                    table.insert(tmp_opt_vals, opt_val)
+                end
+                opt_vals = tmp_opt_vals
+            end
+            assert(type(opt_vals) == 'table')
+            uri_with_options_table[opt] = {}
+            local vals = {}
+            for _, opt_val in pairs(opt_vals) do
+                if not vals[opt_val] then
+                    table.insert(uri_with_options_table[opt], opt_val)
+                    vals[opt_val] = true
+                end
+            end
+        else
+            uri_with_options_table[opt] = opt_vals
+        end
+    end
+    check_uri_in_table_format(uri_with_options_table)
+    return uri_with_options_table
+end
+
+-- This function accepts string that contains one or several
+-- URIs separated by commas. The function returns a table, each
+-- element of which also contains a table, which contains URI
+-- and its options. For example:
+-- input: "uri1?option1=value1, uri2?option2=value2"
+-- output {
+--    { ["uri"] = "uri1", ["option1"] = { "value1" } },
+--    { ["uri"] = "uri2", ["option2"] = { "value2" } },
+-- }
+local function parse_uris_with_options_string(port)
+    local result = {}
+    local uris = {}
+    local uris_with_options = port:split(',')
+    for _, uri_with_options in pairs(uris_with_options) do
+        uri_with_options = trim(uri_with_options)
+        local uri_with_options_table = {}
+        local uri = ""
+        local options = ""
+        local uri_split_pos  = uri_with_options:find('?')
+        if uri_split_pos then
+            uri = uri_with_options:sub(1, uri_split_pos - 1)
+            options = uri_with_options:sub(uri_split_pos + 1)
+            if options == "" then
+                box.error(box.error.CFG, 'listen', 'missing URI options after \'?\'')
+            end
+        else
+            uri = uri_with_options
+        end
+        if uris[uri] then
+            box.error(box.error.CFG, 'listen', 'dublicate listen URI')
+        end
+        uris[uri] = true
+        uri_with_options_table["uri"] = uri
+        if options == "" then
+            goto continue
+        end
+        options = options:split('&')
+        for _, opt_with_vals in pairs(options) do
+            local opt_split_pos = opt_with_vals:find('=')
+            if not opt_split_pos then
+                box.error(box.error.CFG, 'listen', 'not found value for URI ' ..
+                          '\'' .. opt_with_vals .. '\' option')
+            end
+            local opt = opt_with_vals:sub(1, opt_split_pos - 1)
+            local opt_vals = opt_with_vals:sub(opt_split_pos + 1)
+            opt_vals = opt_vals:split(';')
+            if not uri_with_options_table[opt] then
+                uri_with_options_table[opt] = {}
+            end
+            local vals = {}
+            for _, opt_val in pairs(opt_vals) do
+                if not vals[opt_val] then
+                    table.insert(uri_with_options_table[opt], opt_val)
+                    vals[opt_val] = true
+                end
+            end
+        end
+::continue::
+        check_uri_in_table_format(uri_with_options_table)
+        result[#result + 1] = uri_with_options_table
+    end
+    return result
+end
+
+-- Keys in the URI table can be numbers or strings,
+-- but not a combination of them. For example:
+-- input { uri = "uri", option = "value" } - ok
+-- input { uri = "uri", "uri1" } - not ok
+local function check_keys_in_uri_table(port_list)
+    local key_is_string = false
+    local key_is_number = false
+    local key_is_bad = false
+    local table_is_empty = true
+    for key, _ in pairs(port_list) do
+        table_is_empty = false
+        if type(key) == 'number' then
+            key_is_number = true
+        elseif type(key) == 'string' then
+            key_is_string = true
+        else
+            key_is_bad = true
+        end
+        if (key_is_string and key_is_number) or key_is_bad then
+            box.error(box.error.CFG, 'listen', 'keys in the URI table can be ' ..
+                      'numbers or strings, but not a combination of them')
+        end
+    end
+    if table_is_empty then
+        box.error(box.error.CFG, 'listen', "URI table can't be empty")
+    end
+end
+
+-- URIs can be passed in multiple ways, for example as a string, as
+-- a table of strings or as a table of tables or as a combination of
+-- these options. This function accepts any of the previously listed
+-- input alternatives and returs table, which contain tables each of
+-- which contains URIs and it's options. For example:
+-- input {
+--     "uri1?option1=value11;value12&option2=value2",
+--     { ["uri"] = "uri2", ["option"] = "value" },
+--     "uri3?option3=value3, uri4?option4=value4"
+-- }
+-- output {
+--     {
+--       ["uri"] = "uri1",
+--       ["option1"] = { "value11", "value12" },
+--       ["option2"] = { "value2" },
+--     },
+--     { ["uri"] = "uri2", ["option"] = { "value" } },
+--     {
+--       { ["uri"] = "uri3", ["option3"] = { "value3" } },
+--       { ["uri"] = "uri4", ["option4"] = { "value4" } },
+--     }
+-- }
+local function normalize_uris_with_options_list(port_list)
+    local uris_table = {}
+    if type (port_list) ~= 'table' then
+        port_list = normalize_uri(port_list)
+        if not port_list then
+            return { uri = "" }
+        end
+        uris_table = parse_uris_with_options_string(port_list)
+    else
+        check_keys_in_uri_table(port_list)
+        for key, port in pairs(port_list) do
+            if type(key) == 'string' then
+                -- if type(key) == 'string', this means that port_list,
+                -- contains only one uri with or without options.
+                port_list = parse_uris_with_options_table(port_list)
+                check_uri_in_table_format(port_list)
+                table.insert(uris_table, port_list)
+                break
+            elseif type(key) == 'number' then
+                if type(port) == 'string' or type(port) == 'number' then
+                    port = normalize_uri(port)
+                    local tmp_uris_table = parse_uris_with_options_string(port)
+                    for _, uri_in_table_format in pairs(tmp_uris_table) do
+                        uris_table[#uris_table + 1] = uri_in_table_format
+                    end
+                elseif type(port) == 'table' then
+                    check_keys_in_uri_table(port)
+                    port = parse_uris_with_options_table(port)
+                    check_uri_in_table_format(port)
+                    table.insert(uris_table, port)
+                else
+                    box.error(box.error.CFG, 'listen',
+                              'value in the URI table must have ' ..
+                              '\'string\', \'number\' or \'table\' type')
+                end
+            end
+        end
+    end
+    return check_uris_table_and_return(uris_table)
+end
+
 -- options that require special handling
 local modify_cfg = {
     listen             = normalize_uri,
     replication        = normalize_uri_list,
+}
+
+-- options that сhange in the process of preparing
+-- config and save in internal variables
+local modify_internal_cfg = {
+    listen             = normalize_uris_with_options_list
 }
 
 local function purge_password_from_uri(uri)
@@ -661,6 +937,21 @@ setmetatable(box, {
      end
 })
 
+local internal_modify_cfg_mt = {
+    __index = function(self, key)
+        if type(box.cfg) ~= 'table' then
+            return nil
+        end
+        if modify_internal_cfg[key] then
+            return modify_internal_cfg[key](box.cfg[key])
+        end
+        return box.cfg[key]
+    end,
+    __newindex = function(self, key, value) -- luacheck: no unused args
+        error('Attempt to modify a read-only table')
+    end,
+}
+
 -- Whether box is loaded.
 --
 -- `false` when box is not configured or when the initialization
@@ -672,6 +963,7 @@ setmetatable(box, {
 local box_is_configured = false
 
 local function load_cfg(cfg)
+    box.internal.modify_cfg = setmetatable({}, internal_modify_cfg_mt)
     -- A user may save box.cfg (this function) before box loading
     -- and call it afterwards. We should reconfigure box in the
     -- case.
@@ -684,7 +976,6 @@ local function load_cfg(cfg)
 
     -- Set options passed through environment variables.
     apply_env_cfg(cfg, box.internal.cfg.env)
-
     cfg = prepare_cfg(cfg, default_cfg, template_cfg,
                       module_cfg, modify_cfg)
     apply_default_cfg(cfg, default_cfg, module_cfg);

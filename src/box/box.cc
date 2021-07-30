@@ -82,6 +82,7 @@
 #include "msgpack.h"
 #include "raft.h"
 #include "trivia/util.h"
+#include "cfg_uri.h"
 
 enum {
 	IPROTO_THREADS_MAX = 1000,
@@ -681,6 +682,31 @@ box_check_uri(const char *source, const char *option_name)
 	return 0;
 }
 
+static int
+box_parse_uris(const char *name, struct cfg_uri_array *uri_array)
+{
+	if (cfg_uri_array_create(name, uri_array) != 0)
+		return -1;
+	for (int i = 0; i < uri_array->size; i++)
+		if (box_check_uri(uri_array->uris[i].host, name) != 0)
+			goto fail;
+	return 0;
+fail:
+	cfg_uri_array_destroy(uri_array);
+	return -1;
+}
+
+static int
+box_check_listen(void)
+{
+	struct cfg_uri_array uri_array;
+
+	if (box_parse_uris("listen", &uri_array) != 0)
+		return -1;
+	cfg_uri_array_destroy(&uri_array);
+	return 0;
+}
+
 static enum election_mode
 box_check_election_mode(void)
 {
@@ -1136,7 +1162,7 @@ box_check_config(void)
 {
 	struct tt_uuid uuid;
 	box_check_say();
-	if (box_check_uri(cfg_gets("listen"), "listen") != 0)
+	if (box_check_listen() != 0)
 		diag_raise();
 	box_check_instance_uuid(&uuid);
 	box_check_replicaset_uuid(&uuid);
@@ -1691,14 +1717,13 @@ promote:
 int
 box_listen(void)
 {
-	const char *uri_array[1];
-	const char *uri = cfg_gets("listen");
-	if (box_check_uri(uri, "listen") != 0)
+	struct cfg_uri_array uri_array;
+
+	if (box_parse_uris("listen", &uri_array) != 0)
 		return -1;
-	uri_array[0] = uri;
-	if (iproto_listen(uri_array, (uri != NULL ? 1 : 0)) != 0)
-		return -1;
-	return 0;
+	int rc = iproto_listen(&uri_array);
+	cfg_uri_array_destroy(&uri_array);
+	return rc;
 }
 
 void
