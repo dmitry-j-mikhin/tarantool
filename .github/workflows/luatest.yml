@@ -1,0 +1,79 @@
+name: luatest
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    if: ( github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name != github.repository ) &&
+        ( github.repository == 'tarantool/tarantool' )
+
+    runs-on: ubuntu-20.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.6]
+        tarantool-version: [2.7]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: update git submodules
+      run: git submodule update --init --recursive
+    - name: set up Tarantool ${{ matrix.tarantool-version }}
+      uses: tarantool/setup-tarantool@v1
+      with:
+        tarantool-version: ${{ matrix.tarantool-version }}
+    - name: set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: display python version
+      run: python -c "import sys; print(sys.version)"
+    - name: setup dependencies
+      run: |
+       sudo apt update -y
+       sudo apt-get -y install lua5.1 luarocks
+       sudo luarocks install luacheck
+       cd ..
+       sudo tarantoolctl rocks install luatest
+       cd -
+       pwd
+    - name: set default pip to pip3
+      run: |
+       sudo rm -f /usr/local/bin/pip
+       sudo ln -s /usr/bin/pip3 /usr/local/bin/pip
+    - name: set default python and pip to v2.7
+      if: ${{ matrix.python-version }} == 2.7
+      run: |
+       curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py
+       sudo python2 get-pip.py
+       sudo rm -f /usr/bin/python
+       sudo ln -s /usr/bin/python2 /usr/bin/python
+       sudo rm -f /usr/local/bin/pip
+       sudo ln -s /usr/local/bin/pip2 /usr/local/bin/pip
+    - name: setup python dependencies
+      run: |
+       pip install -r test-run/requirements.txt
+       pip install -r test-run/requirements-test.txt
+    - name: run regression tests
+      run: |
+       cd test
+       ./test-run.py luatest --force
+    - name: artifacts
+      uses: actions/upload-artifact@v2
+      if: failure()
+      with:
+        name: test-run
+        retention-days: 7
+        path: /home/ubuntu/actions-runner/_work/tarantool/tarantool/test/var/rejects
+    - name: code coverage
+      if: ${{ matrix.python-version == '3.8' && matrix.tarantool-version == '2.7' }}
+      run: |
+       pip install coveralls==3.*
+       make coverage
+    - name: upload coverage data to coveralls.io
+      if: ${{ matrix.python-version == '3.8' && matrix.tarantool-version == '2.7' }}
+      run: coveralls --service=github
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
