@@ -238,7 +238,8 @@ memtx_engine_recover_synchro(const struct xrow_header *row)
 	 * because all its rows have a zero replica_id.
 	 */
 	req.origin_id = req.replica_id;
-	txn_limbo_process(&txn_limbo, &req);
+	if (txn_limbo_process(&txn_limbo, &req) != 0)
+		return -1;
 	return 0;
 }
 
