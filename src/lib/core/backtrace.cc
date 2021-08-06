@@ -46,6 +46,10 @@
 #ifdef ENABLE_BACKTRACE
 #include <libunwind.h>
 
+#ifdef TARGET_OS_DARWIN
+#include <dlfcn.h>
+#endif
+
 #include "small/region.h"
 #include "small/static.h"
 /*
@@ -452,6 +456,158 @@ backtrace_foreach(backtrace_cb cb, coro_context *coro_ctx, void *cb_ctx)
 #endif
 out:
 	free(demangle_buf);
+}
+
+/**
+ * Collect up to `limit' IP register values
+ * for frames of the current stack into `ip_buf'.
+ * Must be by far faster than usual backtrace according to the
+ * libunwind doc for unw_backtrace().
+ * Return number of collected frames.
+ */
+int NOINLINE
+backtrace_collect_ip(void **ip_buf, int limit)
+{
+#ifndef TARGET_OS_DARWIN
+	int frame_cnt = unw_backtrace(ip_buf, limit);
+	if (frame_cnt < limit)
+		ip_buf[frame_cnt] = NULL;
+
+	return frame_cnt;
+#else
+	/*
+	 * This dumb implementation was chosen because the DARWIN
+	 * lacks unw_backtrace() routine from libunwind and
+	 * usual backtrace() from <execinfo.h> has less capabilities
+	 * than the libunwind version which uses DWARF.
+	 */
+	unw_cursor_t unw_cur;
+	unw_context_t unw_ctx;
+	int frame_no = 0;
+	unw_word_t ip;
+
+	unw_getcontext(&unw_ctx);
+	unw_init_local(&unw_cur, &unw_ctx);
+
+	if (limit > 0)
+		ip_buf[0] = (void *)backtrace_collect_ip;
+
+	for (frame_no = 1; frame_no < limit && unw_step(&unw_cur) > 0;
+	     ++frame_no) {
+		unw_get_reg(&unw_cur, UNW_REG_IP, &ip);
+		ip_buf[frame_no] = (void *)ip;
+	}
+
+	return frame_no;
+#endif /* TARGET_OS_DARWIN */
+}
+
+/**
+ * Resolve frame procedure and offest based on `ip`.
+ *
+ * The implementation uses poorly documented `get_proc_name' callback
+ * from the `unw_accessors_t' to get procedure names via `ip_buf' values.
+ * Although `get_proc_name' is present on most architectures, it's an optional
+ * field, so procedure name is allowed to be absent (NULL) in `cb' call.
+ */
+int
+backtrace_resolve_from_ip(unw_word_t ip, const char **proc, unw_word_t *offset)
+{
+	if (backtrace_proc_cache_find(ip, proc, offset) == 0)
+		return 0;
+
+#ifndef TARGET_OS_DARWIN
+	static __thread char proc_name[BACKTRACE_NAME_MAX];
+
+	int ret = 0;
+	unw_proc_info_t pi;
+	unw_accessors_t *acc = unw_get_accessors(unw_local_addr_space);
+	if (acc->get_proc_name == NULL) {
+		ret = unw_get_proc_info_by_ip(unw_local_addr_space, ip, &pi,
+					      NULL);
+		if (ret != 0) {
+			say_debug("unwinding error: %s", unw_strerror(ret));
+			return -1;
+		}
+
+		*offset = ip - (unw_word_t)pi.start_ip;
+		*proc = NULL;
+	} else {
+		ret = acc->get_proc_name(unw_local_addr_space, ip, proc_name,
+					 sizeof(proc_name), offset, NULL);
+		if (ret != 0) {
+			say_debug("unwinding error: %s", unw_strerror(ret));
+			return -1;
+		}
+
+		*proc = proc_name;
+	}
+#else
+	Dl_info dli;
+	if (dladdr((void *)ip, &dli) == 0) {
+		say_debug("unwinding error: dladdr()");
+		return -1;
+	}
+
+	*offset = ip - (unw_word_t)dli.dli_saddr;
+	*proc = dli.dli_sname;
+#endif /* TARGET_OS_DARWIN */
+
+	backtrace_proc_cache_put(ip, *proc, *offset);
+	return 0;
+}
+
+/**
+ * Call `cb' callback for not more than
+ * first `limit' frames present in the `ip_buf'.
+ *
+ * The implementation uses `backtrace_resolve_from_ip()` to get
+ * procedure names via `ip_buf' values.
+ *
+ * Return number of traversed frames.
+ */
+int
+backtrace_foreach_ip(void **ip_buf, int limit, backtrace_cb cb, void *cb_ctx)
+{
+	int demangle_status;
+	char *demangle_buf = NULL;
+	size_t demangle_buf_len = 0;
+
+	/*
+	 * RIPs collecting comes from inside a helper routine
+	 * so we skip the collector function address itself thus
+	 * start fetching functions with frame number = 1.
+	 */
+	int frame_no;
+	for (frame_no = 1; frame_no < limit && ip_buf[frame_no] != NULL;
+	     frame_no++) {
+		unw_word_t ip = (unw_word_t)ip_buf[frame_no];
+		unw_word_t offset = 0;
+		const char *proc = NULL;
+
+		/* Skip the collector function address if encountered. */
+		if (ip_buf[frame_no] == ip_buf[0])
+			continue;
+
+		if (backtrace_resolve_from_ip(ip, &proc, &offset) != 0)
+			break;
+
+		if (proc != NULL) {
+			char *cxxname = abi::__cxa_demangle(proc, demangle_buf,
+							    &demangle_buf_len,
+							    &demangle_status);
+			if (cxxname != NULL) {
+				demangle_buf = cxxname;
+				proc = cxxname;
+			}
+		}
+		if (cb(frame_no - 1, (void *)ip, proc, offset, cb_ctx) != 0)
+			break;
+	}
+
+	free(demangle_buf);
+
+	return frame_no;
 }
 
 void
