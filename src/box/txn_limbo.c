@@ -929,8 +929,8 @@ filter_promote_demote(struct txn_limbo *limbo,
 		first = txn_limbo_first_entry(limbo);
 		last = txn_limbo_last_entry(limbo);
 
-		if (first->lsn > promote_lsn ||
-		    last->lsn < promote_lsn) {
+		if (promote_lsn < first->lsn ||
+		    promote_lsn > last->lsn) {
 			say_info("%s. promote_lsn %lld out of "
 				 "range [%lld; %lld]",
 				 reject_str(req),
