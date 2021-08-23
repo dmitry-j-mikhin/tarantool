@@ -779,7 +779,8 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	/*
 	 * Zero @a replica_id is allowed for PROMOTE packets only.
 	 */
-	if (req->replica_id == REPLICA_ID_NIL) {
+	if (req->replica_id == REPLICA_ID_NIL &&
+	    limbo->owner_id != REPLICA_ID_NIL) {
 		if (req->type != IPROTO_RAFT_PROMOTE) {
 			say_info("%s. Zero replica_id detected",
 				 reject_str(req));
@@ -846,7 +847,7 @@ filter_promote_demote(struct txn_limbo *limbo,
 	 * PROMOTE and DEMOTE packets must not have zero
 	 * term supplied, otherwise it is a broken packet.
 	 */
-	if (req->term == 0) {
+	if (limbo->promote_greatest_term > 0 && req->term == 0) {
 		say_info("%s. Zero term detected", reject_str(req));
 
 		diag_set(ClientError, ER_UNSUPPORTED,
