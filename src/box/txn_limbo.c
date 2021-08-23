@@ -779,8 +779,7 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	/*
 	 * Zero @a replica_id is allowed for PROMOTE packets only.
 	 */
-	if (req->replica_id == REPLICA_ID_NIL &&
-	    limbo->owner_id != REPLICA_ID_NIL) {
+	if (req->replica_id == REPLICA_ID_NIL) {
 		if (req->type != IPROTO_RAFT_PROMOTE) {
 			say_info("%s. Zero replica_id detected",
 				 reject_str(req));
@@ -971,17 +970,18 @@ txn_limbo_filter_locked(struct txn_limbo *limbo,
 #ifndef NDEBUG
 	say_info("limbo: filter %s replica_id %u origin_id %u "
 		 "term %lld lsn %lld, queue owner_id %u len %lld "
-		 "confirmed_lsn %lld (%s)",
+		 "confirmed_lsn %lld promote_greatest_term %lld (%s)",
 		 iproto_type_name(req->type),
 		 req->replica_id, req->origin_id,
 		 (long long)req->term, (long long)req->lsn,
 		 limbo->owner_id, (long long)limbo->len,
 		 (long long)limbo->confirmed_lsn,
+		 (long long)limbo->promote_greatest_term,
 		 limbo->is_filtering ? "on" : "off");
 #endif
 
-	if (!limbo->is_filtering)
-		return 0;
+//	if (!limbo->is_filtering)
+//		return 0;
 
 	switch (req->type) {
 	case IPROTO_RAFT_CONFIRM:
