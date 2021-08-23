@@ -1690,7 +1690,8 @@ box_issue_promote(uint32_t prev_leader_id, int64_t promote_lsn)
 		.lsn = promote_lsn,
 		.term = raft->term,
 	};
-	txn_limbo_process(&txn_limbo, &req);
+	if (txn_limbo_process(&txn_limbo, &req) != 0)
+		diag_raise();
 	assert(txn_limbo_is_empty(&txn_limbo));
 }
 
@@ -1712,7 +1713,8 @@ box_issue_demote(uint32_t prev_leader_id, int64_t promote_lsn)
 		.lsn = promote_lsn,
 		.term = box_raft()->term,
 	};
-	txn_limbo_process(&txn_limbo, &req);
+	if (txn_limbo_process(&txn_limbo, &req) != 0)
+		diag_raise();
 	assert(txn_limbo_is_empty(&txn_limbo));
 }
 
@@ -3300,6 +3302,11 @@ local_recovery(const struct tt_uuid *instance_uuid,
 	}
 
 	say_info("instance uuid %s", tt_uuid_str(&INSTANCE_UUID));
+
+	txn_limbo_filter_disable(&txn_limbo);
+	auto filter_guard = make_scoped_guard([&]{
+		txn_limbo_filter_enable(&txn_limbo);
+	});
 
 	struct wal_stream wal_stream;
 	wal_stream_create(&wal_stream);

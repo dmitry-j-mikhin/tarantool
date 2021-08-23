@@ -458,7 +458,8 @@ applier_wait_snapshot(struct applier *applier)
 				struct synchro_request req;
 				if (xrow_decode_synchro(&row, &req) != 0)
 					diag_raise();
-				txn_limbo_process(&txn_limbo, &req);
+				if (txn_limbo_process(&txn_limbo, &req) != 0)
+					diag_raise();
 			} else if (iproto_type_is_raft_request(row.type)) {
 				struct raft_request req;
 				if (xrow_decode_raft(&row, &req, NULL) != 0)
@@ -513,6 +514,11 @@ applier_fetch_snapshot(struct applier *applier)
 	/* Send FETCH SNAPSHOT request */
 	struct ev_io *coio = &applier->io;
 	struct xrow_header row;
+
+	txn_limbo_filter_disable(&txn_limbo);
+	auto filter_guard = make_scoped_guard([&]{
+		txn_limbo_filter_enable(&txn_limbo);
+	});
 
 	memset(&row, 0, sizeof(row));
 	row.type = IPROTO_FETCH_SNAPSHOT;
@@ -587,6 +593,11 @@ applier_register(struct applier *applier, bool was_anon)
 	struct ev_io *coio = &applier->io;
 	struct xrow_header row;
 
+	txn_limbo_filter_disable(&txn_limbo);
+	auto filter_guard = make_scoped_guard([&]{
+		txn_limbo_filter_enable(&txn_limbo);
+	});
+
 	memset(&row, 0, sizeof(row));
 	/*
 	 * Send this instance's current vclock together
@@ -619,6 +630,11 @@ applier_join(struct applier *applier)
 	struct ev_io *coio = &applier->io;
 	struct xrow_header row;
 	uint64_t row_count;
+
+	txn_limbo_filter_disable(&txn_limbo);
+	auto filter_guard = make_scoped_guard([&]{
+		txn_limbo_filter_enable(&txn_limbo);
+	});
 
 	xrow_encode_join_xc(&row, &INSTANCE_UUID);
 	coio_write_xrow(coio, &row);
@@ -875,6 +891,11 @@ apply_synchro_row(uint32_t replica_id, struct xrow_header *row)
 		goto err;
 
 	txn_limbo_term_lock(&txn_limbo);
+	if (txn_limbo_filter_locked(&txn_limbo, &req) != 0) {
+		txn_limbo_term_unlock(&txn_limbo);
+		goto err;
+	}
+
 	struct replica_cb_data rcb_data;
 	struct synchro_entry entry;
 	/*
