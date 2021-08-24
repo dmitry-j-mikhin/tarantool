@@ -766,9 +766,8 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	 */
 	if (req->lsn == 0) {
 		if (!iproto_type_is_promote_request(req->type)) {
-			say_info("%s. Zero lsn detected",
-				 reject_str(req));
-
+			say_error("%s. Zero lsn detected",
+				  reject_str(req));
 			diag_set(ClientError, ER_UNSUPPORTED,
 				 "Replication",
 				 "zero LSN on promote/demote");
@@ -781,9 +780,8 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	 */
 	if (req->replica_id == REPLICA_ID_NIL) {
 		if (req->type != IPROTO_RAFT_PROMOTE) {
-			say_info("%s. Zero replica_id detected",
+			say_error("%s. Zero replica_id detected",
 				 reject_str(req));
-
 			diag_set(ClientError, ER_UNSUPPORTED,
 				 "Replication",
 				 "zero replica_id");
@@ -798,9 +796,8 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	 * missed limbo owner migrations and out of date.
 	 */
 	if (req->replica_id != limbo->owner_id) {
-		say_info("%s. Limbo owner mismatch, owner_id %u",
-			 reject_str(req), limbo->owner_id);
-
+		say_error("%s. Limbo owner mismatch, owner_id %u",
+			  reject_str(req), limbo->owner_id);
 		diag_set(ClientError, ER_UNSUPPORTED,
 			 "Replication",
 			 "sync queue silent owner migration");
@@ -825,8 +822,7 @@ filter_confirm_rollback(struct txn_limbo *limbo,
 	if (!txn_limbo_is_empty(limbo))
 		return 0;
 
-	say_info("%s. Empty limbo detected", reject_str(req));
-
+	say_error("%s. Empty limbo detected", reject_str(req));
 	diag_set(ClientError, ER_UNSUPPORTED,
 		 "Replication",
 		 "confirm/rollback with empty limbo");
@@ -847,8 +843,7 @@ filter_promote_demote(struct txn_limbo *limbo,
 	 * term supplied, otherwise it is a broken packet.
 	 */
 	if (limbo->promote_greatest_term > 0 && req->term == 0) {
-		say_info("%s. Zero term detected", reject_str(req));
-
+		say_error("%s. Zero term detected", reject_str(req));
 		diag_set(ClientError, ER_UNSUPPORTED,
 			 "Replication", "zero term");
 		return -1;
@@ -861,9 +856,8 @@ filter_promote_demote(struct txn_limbo *limbo,
 	 * no longer consistent.
 	 */
 	if (limbo->promote_greatest_term > req->term) {
-		say_info("%s. Max term seen is %llu", reject_str(req),
-			 (long long)limbo->promote_greatest_term);
-
+		say_error("%s. Max term seen is %llu", reject_str(req),
+			  (long long)limbo->promote_greatest_term);
 		diag_set(ClientError, ER_UNSUPPORTED,
 			 "Replication", "obsolete terms");
 		return -1;
@@ -883,11 +877,10 @@ filter_promote_demote(struct txn_limbo *limbo,
 	 * processed.
 	 */
 	if (limbo->confirmed_lsn > promote_lsn) {
-		say_info("%s. confirmed_lsn %lld > promote_lsn %lld",
-			 reject_str(req),
-			 (long long)limbo->confirmed_lsn,
-			 (long long)promote_lsn);
-
+		say_error("%s. confirmed_lsn %lld > promote_lsn %lld",
+			  reject_str(req),
+			  (long long)limbo->confirmed_lsn,
+			  (long long)promote_lsn);
 		diag_set(ClientError, ER_UNSUPPORTED,
 			 "Replication",
 			 "backward promote LSN (split brain)");
@@ -904,11 +897,10 @@ filter_promote_demote(struct txn_limbo *limbo,
 		 * Transactions are rolled back already,
 		 * since the limbo is empty.
 		 */
-		say_info("%s. confirmed_lsn %lld < promote_lsn %lld "
-			 "and empty limbo", reject_str(req),
-			 (long long)limbo->confirmed_lsn,
-			 (long long)promote_lsn);
-
+		say_error("%s. confirmed_lsn %lld < promote_lsn %lld "
+			  "and empty limbo", reject_str(req),
+			  (long long)limbo->confirmed_lsn,
+			  (long long)promote_lsn);
 		diag_set(ClientError, ER_UNSUPPORTED,
 			 "Replication",
 			 "forward promote LSN "
@@ -931,13 +923,12 @@ filter_promote_demote(struct txn_limbo *limbo,
 
 		if (promote_lsn < first->lsn ||
 		    promote_lsn > last->lsn) {
-			say_info("%s. promote_lsn %lld out of "
-				 "range [%lld; %lld]",
-				 reject_str(req),
-				 (long long)promote_lsn,
-				 (long long)first->lsn,
-				 (long long)last->lsn);
-
+			say_error("%s. promote_lsn %lld out of "
+				  "range [%lld; %lld]",
+				  reject_str(req),
+				  (long long)promote_lsn,
+				  (long long)first->lsn,
+				  (long long)last->lsn);
 			diag_set(ClientError, ER_UNSUPPORTED,
 				 "Replication",
 				 "promote LSN out of queue range "
