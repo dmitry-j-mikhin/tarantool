@@ -761,6 +761,17 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	(void)limbo;
 
 	/*
+	 * Any packet must have nonzero term supplied,
+	 * otherwise it is a broken packet.
+	 */
+	if (req->term == 0) {
+		say_error("%s. Zero term detected", reject_str(req));
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication", "zero term");
+		return -1;
+	}
+
+	/*
 	 * Zero LSN are allowed for PROMOTE
 	 * and DEMOTE requests only.
 	 */
@@ -794,16 +805,19 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	 * Incoming packets should esteem limbo owner,
 	 * if it doesn't match it means the sender
 	 * missed limbo owner migrations and out of date.
+	 *
+	 * Still here is a valid case when a replica is
+	 * joining or recovering from a snapshot. In this
+	 * case limbo->owner_id = REPLICA_ID_NIL and incoming
+	 * request req->replica_id != REPLICA_ID_NIL
 	 */
 	if (req->replica_id != limbo->owner_id) {
-		if (!iproto_type_is_promote_request(req->type)) {
-			say_error("%s. Limbo owner mismatch, owner_id %u",
-				  reject_str(req), limbo->owner_id);
-			diag_set(ClientError, ER_UNSUPPORTED,
-				 "Replication",
-				 "sync queue silent owner migration");
-			return -1;
-		}
+		say_error("%s. Limbo owner mismatch, owner_id %u",
+			  reject_str(req), limbo->owner_id);
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication",
+			 "sync queue silent owner migration");
+		return -1;
 	}
 
 	return 0;
@@ -839,17 +853,6 @@ filter_promote_demote(struct txn_limbo *limbo,
 		      const struct synchro_request *req)
 {
 	int64_t promote_lsn = req->lsn;
-
-	/*
-	 * PROMOTE and DEMOTE packets must not have zero
-	 * term supplied, otherwise it is a broken packet.
-	 */
-	if (limbo->promote_greatest_term > 0 && req->term == 0) {
-		say_error("%s. Zero term detected", reject_str(req));
-		diag_set(ClientError, ER_UNSUPPORTED,
-			 "Replication", "zero term");
-		return -1;
-	}
 
 	/*
 	 * If the term is already seen it means it comes
@@ -973,8 +976,8 @@ txn_limbo_filter_locked(struct txn_limbo *limbo,
 		 limbo->is_filtering ? "on" : "off");
 #endif
 
-//	if (!limbo->is_filtering)
-//		return 0;
+	if (!limbo->is_filtering)
+		return 0;
 
 	switch (req->type) {
 	case IPROTO_RAFT_CONFIRM:
