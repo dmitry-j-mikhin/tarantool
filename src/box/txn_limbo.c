@@ -761,17 +761,6 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	(void)limbo;
 
 	/*
-	 * Any packet must have nonzero term supplied,
-	 * otherwise it is a broken packet.
-	 */
-	if (req->term == 0) {
-		say_error("%s. Zero term detected", reject_str(req));
-		diag_set(ClientError, ER_UNSUPPORTED,
-			 "Replication", "zero term");
-		return -1;
-	}
-
-	/*
 	 * Zero LSN are allowed for PROMOTE
 	 * and DEMOTE requests only.
 	 */
@@ -853,6 +842,17 @@ filter_promote_demote(struct txn_limbo *limbo,
 		      const struct synchro_request *req)
 {
 	int64_t promote_lsn = req->lsn;
+
+	/*
+	 * A packet must have nonzero term supplied,
+	 * otherwise it is a broken packet.
+	 */
+	if (req->term == 0) {
+		say_error("%s. Zero term detected", reject_str(req));
+		diag_set(ClientError, ER_UNSUPPORTED,
+			 "Replication", "zero term");
+		return -1;
+	}
 
 	/*
 	 * If the term is already seen it means it comes
