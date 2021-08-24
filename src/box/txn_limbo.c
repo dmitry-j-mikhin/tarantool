@@ -796,12 +796,14 @@ filter_in(struct txn_limbo *limbo, const struct synchro_request *req)
 	 * missed limbo owner migrations and out of date.
 	 */
 	if (req->replica_id != limbo->owner_id) {
-		say_error("%s. Limbo owner mismatch, owner_id %u",
-			  reject_str(req), limbo->owner_id);
-		diag_set(ClientError, ER_UNSUPPORTED,
-			 "Replication",
-			 "sync queue silent owner migration");
-		return -1;
+		if (!iproto_type_is_promote_request(req->type)) {
+			say_error("%s. Limbo owner mismatch, owner_id %u",
+				  reject_str(req), limbo->owner_id);
+			diag_set(ClientError, ER_UNSUPPORTED,
+				 "Replication",
+				 "sync queue silent owner migration");
+			return -1;
+		}
 	}
 
 	return 0;
