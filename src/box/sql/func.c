@@ -59,6 +59,17 @@ static const char hexdigits[] = {
 	'8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
 };
 
+/** Return the collating function associated with a function. */
+static struct coll *
+get_coll(struct sql_context *ctx)
+{
+	assert(ctx->pVdbe != NULL);
+	struct VdbeOp *op = &ctx->pVdbe->aOp[ctx->iOp - 1];
+	assert(op->opcode == OP_CollSeq);
+	assert(op->p4type == P4_COLLSEQ || op->p4.pColl == NULL);
+	return op->p4.pColl;
+}
+
 /** Implementation of the HEX() SQL built-in function. */
 static void
 func_hex(struct sql_context *ctx, int argc, struct Mem **argv)
@@ -89,6 +100,59 @@ func_hex(struct sql_context *ctx, int argc, struct Mem **argv)
 	if ((argv[0]->flags & MEM_Zero) != 0)
 		memset(&str[2 * argv[0]->n], '0', 2 * argv[0]->u.nZero);
 	mem_set_str_allocated(ctx->pOut, str, size);
+}
+
+/** Implementation of the UPPER() and LOWER() SQL built-in functions. */
+static void
+func_lower_upper(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	if (argv[0]->type == MEM_TYPE_NULL)
+		return mem_set_null(ctx->pOut);
+	assert(argv[0]->type == MEM_TYPE_STR && argv[0]->n >= 0);
+	if (argv[0]->n == 0)
+		return mem_set_str0_static(ctx->pOut, "");
+	const char *str = argv[0]->z;
+	int32_t len = argv[0]->n;
+	struct sql *db = sql_get();
+	char *res = sqlDbMallocRawNN(db, len);
+	if (res == NULL) {
+		ctx->is_aborted = true;
+		return;
+	}
+	int32_t size = sqlDbMallocSize(db, res);
+	assert(size >= len);
+	UErrorCode status = U_ZERO_ERROR;
+	struct coll *coll = get_coll(ctx);
+	const char *locale = NULL;
+	if (coll != NULL && coll->type == COLL_TYPE_ICU) {
+		locale = ucol_getLocaleByType(coll->collator, ULOC_VALID_LOCALE,
+					      &status);
+	}
+	UCaseMap *cm = ucasemap_open(locale, 0, &status);
+	assert(cm != NULL);
+	assert(ctx->func->def->name[0] == 'U' ||
+	       ctx->func->def->name[0] == 'L');
+	bool is_upper = ctx->func->def->name[0] == 'U';
+	int32_t new_len =
+		is_upper ?
+		ucasemap_utf8ToUpper(cm, res, size, str, len, &status) :
+		ucasemap_utf8ToLower(cm, res, size, str, len, &status);
+	if (new_len > size) {
+		res = sqlDbRealloc(db, res, new_len);
+		if (db->mallocFailed != 0) {
+			ctx->is_aborted = true;
+			return;
+		}
+		status = U_ZERO_ERROR;
+		if (is_upper)
+			ucasemap_utf8ToUpper(cm, res, size, str, len, &status);
+		else
+			ucasemap_utf8ToLower(cm, res, size, str, len, &status);
+	}
+	ucasemap_close(cm);
+	mem_set_str_allocated(ctx->pOut, res, new_len);
 }
 
 static const unsigned char *
@@ -139,20 +203,6 @@ sql_func_uuid(struct sql_context *ctx, int argc, struct Mem **argv)
 }
 
 /*
- * Return the collating function associated with a function.
- */
-static struct coll *
-sqlGetFuncCollSeq(sql_context * context)
-{
-	VdbeOp *pOp;
-	assert(context->pVdbe != 0);
-	pOp = &context->pVdbe->aOp[context->iOp - 1];
-	assert(pOp->opcode == OP_CollSeq);
-	assert(pOp->p4type == P4_COLLSEQ || pOp->p4.pColl == NULL);
-	return pOp->p4.pColl;
-}
-
-/*
  * Indicate that the accumulator load should be skipped on this
  * iteration of the aggregate loop.
  */
@@ -179,7 +229,7 @@ minmaxFunc(sql_context * context, int argc, sql_value ** argv)
 		context->is_aborted = true;
 		return;
 	}
-	pColl = sqlGetFuncCollSeq(context);
+	pColl = get_coll(context);
 	assert(mask == -1 || mask == 0);
 	iBest = 0;
 	if (mem_is_null(argv[0]))
@@ -440,7 +490,7 @@ position_func(struct sql_context *context, int argc, struct Mem **argv)
 					       n_haystack_bytes);
 			}
 			int beg_offset = 0;
-			struct coll *coll = sqlGetFuncCollSeq(context);
+			struct coll *coll = get_coll(context);
 			int c;
 			for (c = 0; c + n_needle_chars <= n_haystack_chars; c++) {
 				if (coll->cmp((const char *) haystack_str + beg_offset,
@@ -670,77 +720,6 @@ contextMalloc(sql_context * context, i64 nByte)
 	}
 	return z;
 }
-
-/*
- * Implementation of the upper() and lower() SQL functions.
- */
-
-#define ICU_CASE_CONVERT(case_type)                                            \
-static void                                                                    \
-case_type##ICUFunc(sql_context *context, int argc, sql_value **argv)   \
-{                                                                              \
-	char *z1;                                                              \
-	const char *z2;                                                        \
-	int n;                                                                 \
-	UNUSED_PARAMETER(argc);                                                \
-	if (mem_is_bin(argv[0]) || mem_is_map(argv[0]) ||                      \
-	    mem_is_array(argv[0])) {                                           \
-		diag_set(ClientError, ER_INCONSISTENT_TYPES, "string",         \
-			 mem_str(argv[0]));                                    \
-		context->is_aborted = true;                                    \
-		return;                                                        \
-	}                                                                      \
-	z2 = mem_as_str0(argv[0]);                                             \
-	n = mem_len_unsafe(argv[0]);                                           \
-	/*                                                                     \
-	 * Verify that the call to _bytes()                                    \
-	 * does not invalidate the _text() pointer.                            \
-	 */                                                                    \
-	assert(z2 == mem_as_str0(argv[0]));                                    \
-	if (!z2)                                                               \
-		return;                                                        \
-	z1 = contextMalloc(context, ((i64) n) + 1);                            \
-	if (z1 == NULL) {                                                      \
-		context->is_aborted = true;                                    \
-		return;                                                        \
-	}                                                                      \
-	UErrorCode status = U_ZERO_ERROR;                                      \
-	struct coll *coll = sqlGetFuncCollSeq(context);                    \
-	const char *locale = NULL;                                             \
-	if (coll != NULL && coll->type == COLL_TYPE_ICU) {                     \
-		locale = ucol_getLocaleByType(coll->collator,                  \
-					      ULOC_VALID_LOCALE, &status);     \
-	}                                                                      \
-	UCaseMap *case_map = ucasemap_open(locale, 0, &status);                \
-	assert(case_map != NULL);                                              \
-	int len = ucasemap_utf8To##case_type(case_map, z1, n, z2, n, &status); \
-	if (len > n) {                                                         \
-		status = U_ZERO_ERROR;                                         \
-		sql_free(z1);                                              \
-		z1 = contextMalloc(context, ((i64) len) + 1);                  \
-		if (z1 == NULL) {                                              \
-			context->is_aborted = true;                            \
-			return;                                                \
-		}                                                              \
-		ucasemap_utf8To##case_type(case_map, z1, len, z2, n, &status); \
-	}                                                                      \
-	ucasemap_close(case_map);                                              \
-	sql_result_text(context, z1, len, sql_free);                   \
-}                                                                              \
-
-ICU_CASE_CONVERT(Lower);
-ICU_CASE_CONVERT(Upper);
-
-
-/*
- * Some functions like COALESCE() and IFNULL() and UNLIKELY() are implemented
- * as VDBE code so that unused argument values do not have to be computed.
- * However, we still need some kind of function implementation for this
- * routines in the function table.  The noopFunc macro provides this.
- * noopFunc will never be called so it doesn't matter what the implementation
- * is.  We might as well use the "version()" function as a substitute.
- */
-#define noopFunc sql_func_version /* Substitute function - never called */
 
 /*
  * Implementation of random().  Return a random integer.
@@ -1067,7 +1046,7 @@ likeFunc(sql_context *context, int argc, sql_value **argv)
 	if (!zA || !zB)
 		return;
 	int res;
-	struct coll *coll = sqlGetFuncCollSeq(context);
+	struct coll *coll = get_coll(context);
 	assert(coll != NULL);
 	res = sql_utf8_pattern_compare(zB, zA, zB_end, zA_end, coll, escape);
 
@@ -1088,7 +1067,7 @@ likeFunc(sql_context *context, int argc, sql_value **argv)
 static void
 nullifFunc(sql_context * context, int NotUsed, sql_value ** argv)
 {
-	struct coll *pColl = sqlGetFuncCollSeq(context);
+	struct coll *pColl = get_coll(context);
 	UNUSED_PARAMETER(NotUsed);
 	if (mem_cmp_scalar(argv[0], argv[1], pColl) != 0)
 		sql_result_value(context, argv[0]);
@@ -1764,7 +1743,7 @@ minmaxStep(sql_context * context, int NotUsed, sql_value ** argv)
 		if (!mem_is_null(pBest))
 			sqlSkipAccumulatorLoad(context);
 	} else if (!mem_is_null(pBest)) {
-		struct coll *pColl = sqlGetFuncCollSeq(context);
+		struct coll *pColl = get_coll(context);
 		/*
 		 * This step function is used for both the min()
 		 * and max() aggregates, the only difference
@@ -2063,7 +2042,7 @@ static struct sql_func_definition definitions[] = {
 	 FIELD_TYPE_BOOLEAN, sql_builtin_stub, NULL},
 	{"LIKELY", 1, {FIELD_TYPE_ANY}, FIELD_TYPE_BOOLEAN, sql_builtin_stub,
 	 NULL},
-	{"LOWER", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_STRING, LowerICUFunc,
+	{"LOWER", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_STRING, func_lower_upper,
 	 NULL},
 
 	{"MAX", 1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_INTEGER, minmaxStep,
@@ -2150,7 +2129,7 @@ static struct sql_func_definition definitions[] = {
 	 NULL},
 	{"UNLIKELY", 1, {FIELD_TYPE_ANY}, FIELD_TYPE_BOOLEAN, sql_builtin_stub,
 	 NULL},
-	{"UPPER", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_STRING, UpperICUFunc,
+	{"UPPER", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_STRING, func_lower_upper,
 	 NULL},
 	{"UUID", 0, {}, FIELD_TYPE_UUID, sql_func_uuid, NULL},
 	{"UUID", 1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_UUID, sql_func_uuid, NULL},
