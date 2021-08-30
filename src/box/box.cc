@@ -2616,9 +2616,7 @@ box_process_register(struct ev_io *io, struct xrow_header *header)
 
 	struct tt_uuid instance_uuid = uuid_nil;
 	struct vclock replica_vclock;
-	uint32_t replica_version_id;
-	xrow_decode_register_xc(header, &instance_uuid, &replica_vclock,
-				&replica_version_id);
+	xrow_decode_register_xc(header, &instance_uuid, &replica_vclock, NULL);
 
 	if (!is_box_configured)
 		tnt_raise(ClientError, ER_LOADING);
