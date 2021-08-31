@@ -183,6 +183,7 @@ struct sql_context {
 	bool is_aborted;
 	u8 skipFlag;		/* Skip accumulator loading if true */
 	u8 argc;		/* Number of arguments */
+	uint32_t count;
 	sql_value *argv[1];	/* Argument set */
 };
 

@@ -4228,6 +4228,7 @@ case OP_AggStep0: {
 	pCtx->iOp = (int)(pOp - aOp);
 	pCtx->pVdbe = p;
 	pCtx->argc = n;
+	pCtx->count = 0;
 	pOp->p4type = P4_FUNCCTX;
 	pOp->p4.pCtx = pCtx;
 	pOp->opcode = OP_AggStep;
@@ -4274,6 +4275,7 @@ case OP_AggStep: {
 		goto abort_due_to_error;
 	}
 	assert(mem_is_null(&t));
+	++pCtx->count;
 	if (pCtx->skipFlag) {
 		assert(pOp[-1].opcode==OP_CollSeq);
 		i = pOp[-1].p1;
@@ -4299,7 +4301,7 @@ case OP_AggFinal: {
 	Mem *pMem;
 	assert(pOp->p1>0 && pOp->p1<=(p->nMem+1 - p->nCursor));
 	pMem = &aMem[pOp->p1];
-	assert(mem_is_null(pMem) || mem_is_agg(pMem));
+	assert(mem_is_null(pMem) || mem_is_agg(pMem) || mem_is_num(pMem));
 	if (sql_vdbemem_finalize(pMem, pOp->p4.func) != 0)
 		goto abort_due_to_error;
 	UPDATE_MAX_BLOBSIZE(pMem);

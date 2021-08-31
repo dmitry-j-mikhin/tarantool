@@ -3051,7 +3051,6 @@ sql_vdbemem_finalize(struct Mem *mem, struct func *func)
 	assert(func != NULL);
 	assert(func->def->language == FUNC_LANGUAGE_SQL_BUILTIN);
 	assert(func->def->aggregate == FUNC_AGGREGATE_GROUP);
-	assert(mem->type == MEM_TYPE_NULL || func == mem->u.func);
 	sql_context ctx;
 	memset(&ctx, 0, sizeof(ctx));
 	Mem t;
