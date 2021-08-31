@@ -265,6 +265,47 @@ func_typeof(struct sql_context *ctx, int argc, struct Mem **argv)
 	mem_set_str0_static(ctx->pOut, mem_type_to_str(argv[0]));
 }
 
+/** Implementation of the ABS() function for INTEGER argument. */
+static void
+func_abs_int(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	if (argv[0]->type == MEM_TYPE_NULL)
+		return mem_set_null(ctx->pOut);
+	assert(argv[0]->type == MEM_TYPE_INT || argv[0]->type == MEM_TYPE_UINT);
+	bool is_neg = argv[0]->type == MEM_TYPE_INT;
+	uint64_t res = is_neg ? -argv[0]->u.u : argv[0]->u.u;
+	mem_set_uint(ctx->pOut, res);
+}
+
+/** Implementation of the ABS() function for DOUBLE argument. */
+static void
+func_abs_double(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	if (argv[0]->type == MEM_TYPE_NULL)
+		return mem_set_null(ctx->pOut);
+	assert(argv[0]->type == MEM_TYPE_DOUBLE);
+	double res = argv[0]->u.r < 0 ? -argv[0]->u.r : argv[0]->u.r;
+	mem_set_double(ctx->pOut, res);
+}
+
+/** Implementation of the ABS() function for DECIMAL argument. */
+static void
+func_abs_dec(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	if (argv[0]->type == MEM_TYPE_NULL)
+		return mem_set_null(ctx->pOut);
+	assert(argv[0]->type == MEM_TYPE_DEC);
+	decimal_t res;
+	decimal_abs(&res, &argv[0]->u.d);
+	mem_set_dec(ctx->pOut, &res);
+}
+
 static const unsigned char *
 mem_as_ustr(struct Mem *mem)
 {
@@ -351,57 +392,6 @@ minmaxFunc(sql_context * context, int argc, sql_value ** argv)
 			iBest = i;
 	}
 	sql_result_value(context, argv[iBest]);
-}
-
-/*
- * Implementation of the abs() function.
- *
- * IMP: R-23979-26855 The abs(X) function returns the absolute value of
- * the numeric argument X.
- */
-static void
-absFunc(sql_context * context, int argc, sql_value ** argv)
-{
-	assert(argc == 1);
-	UNUSED_PARAMETER(argc);
-	switch (sql_value_type(argv[0])) {
-	case MP_UINT: {
-		sql_result_uint(context, mem_get_uint_unsafe(argv[0]));
-		break;
-	}
-	case MP_INT: {
-		int64_t value = mem_get_int_unsafe(argv[0]);
-		assert(value < 0);
-		sql_result_uint(context, -value);
-		break;
-	}
-	case MP_NIL:{
-			/* IMP: R-37434-19929 Abs(X) returns NULL if X is NULL. */
-			sql_result_null(context);
-			break;
-		}
-	case MP_BOOL:
-	case MP_BIN:
-	case MP_EXT:
-	case MP_ARRAY:
-	case MP_MAP: {
-		diag_set(ClientError, ER_INCONSISTENT_TYPES, "number",
-			 mem_str(argv[0]));
-		context->is_aborted = true;
-		return;
-	}
-	default:{
-			/*
-			 * Abs(X) returns 0.0 if X is a string or blob
-			 * that cannot be converted to a numeric value.
-			 */
-			double rVal = mem_get_double_unsafe(argv[0]);
-			if (rVal < 0)
-				rVal = -rVal;
-			sql_result_double(context, rVal);
-			break;
-		}
-	}
 }
 
 /**
@@ -1895,8 +1885,12 @@ struct sql_func_definition {
  * function should be defined in succession.
  */
 static struct sql_func_definition definitions[] = {
-	{"ABS", 1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_INTEGER, absFunc, NULL},
-	{"ABS", 1, {FIELD_TYPE_DOUBLE}, FIELD_TYPE_DOUBLE, absFunc, NULL},
+	{"ABS", 1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_INTEGER, func_abs_int,
+	 NULL},
+	{"ABS", 1, {FIELD_TYPE_DOUBLE}, FIELD_TYPE_DOUBLE, func_abs_double,
+	 NULL},
+	{"ABS", 1, {FIELD_TYPE_DECIMAL}, FIELD_TYPE_DECIMAL, func_abs_dec,
+	 NULL},
 	{"AVG", 1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_INTEGER, sum_step, avgFinalize},
 	{"AVG", 1, {FIELD_TYPE_DOUBLE}, FIELD_TYPE_DOUBLE, sum_step, avgFinalize},
 	{"CHAR", -1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_STRING, charFunc, NULL},
