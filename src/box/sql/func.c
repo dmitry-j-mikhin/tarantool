@@ -256,6 +256,15 @@ func_octet_length(struct sql_context *ctx, int argc, struct Mem **argv)
 	return mem_set_uint(ctx->pOut, argv[0]->n);
 }
 
+/** Implementation of the TYPEOF() function. */
+static void
+func_typeof(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	mem_set_str0_static(ctx->pOut, mem_type_to_str(argv[0]));
+}
+
 static const unsigned char *
 mem_as_ustr(struct Mem *mem)
 {
@@ -342,53 +351,6 @@ minmaxFunc(sql_context * context, int argc, sql_value ** argv)
 			iBest = i;
 	}
 	sql_result_value(context, argv[iBest]);
-}
-
-/*
- * Return the type of the argument.
- */
-static void
-typeofFunc(sql_context * context, int NotUsed, sql_value ** argv)
-{
-	const char *z = 0;
-	UNUSED_PARAMETER(NotUsed);
-	if ((argv[0]->flags & MEM_Number) != 0)
-		return mem_set_str0_static(context->pOut, "number");
-	if ((argv[0]->flags & MEM_Scalar) != 0)
-		return mem_set_str0_static(context->pOut, "scalar");
-	switch (argv[0]->type) {
-	case MEM_TYPE_INT:
-	case MEM_TYPE_UINT:
-		z = "integer";
-		break;
-	case MEM_TYPE_DEC:
-		z = "decimal";
-		break;
-	case MEM_TYPE_STR:
-		z = "string";
-		break;
-	case MEM_TYPE_DOUBLE:
-		z = "double";
-		break;
-	case MEM_TYPE_BIN:
-	case MEM_TYPE_ARRAY:
-	case MEM_TYPE_MAP:
-		z = "varbinary";
-		break;
-	case MEM_TYPE_BOOL:
-		z = "boolean";
-		break;
-	case MEM_TYPE_NULL:
-		z = "NULL";
-		break;
-	case MEM_TYPE_UUID:
-		z = "uuid";
-		break;
-	default:
-		unreachable();
-		break;
-	}
-	sql_result_text(context, z, -1, SQL_STATIC);
 }
 
 /*
@@ -2077,7 +2039,7 @@ static struct sql_func_definition definitions[] = {
 	 {FIELD_TYPE_VARBINARY, FIELD_TYPE_INTEGER, FIELD_TYPE_VARBINARY},
 	 FIELD_TYPE_VARBINARY, trim_func, NULL},
 
-	{"TYPEOF", 1, {FIELD_TYPE_ANY}, FIELD_TYPE_STRING, typeofFunc, NULL},
+	{"TYPEOF", 1, {FIELD_TYPE_ANY}, FIELD_TYPE_STRING, func_typeof, NULL},
 	{"UNICODE", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_INTEGER, unicodeFunc,
 	 NULL},
 	{"UNLIKELY", 1, {FIELD_TYPE_ANY}, FIELD_TYPE_BOOLEAN, sql_builtin_stub,
