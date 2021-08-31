@@ -1,6 +1,6 @@
 #!/usr/bin/env tarantool
 local test = require("sqltester")
-test:plan(130)
+test:plan(121)
 
 --!./tcltestrunner.lua
 -- 2009 November 11
@@ -162,7 +162,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -1)
     ]], {
         -- <func2-1.11>
-        "s"
+        "Supercalifragilisticexpialidocious"
         -- </func2-1.11>
     })
 
@@ -172,7 +172,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -2)
     ]], {
         -- <func2-1.12>
-        "us"
+        "Supercalifragilisticexpialidocious"
         -- </func2-1.12>
     })
 
@@ -182,7 +182,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -30)
     ]], {
         -- <func2-1.13>
-        "rcalifragilisticexpialidocious"
+        "Supercalifragilisticexpialidocious"
         -- </func2-1.13>
     })
 
@@ -223,7 +223,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 0, 1)
     ]], {
         -- <func2-1.17.1>
-        ""
+        "S"
         -- </func2-1.17.1>
     })
 
@@ -233,7 +233,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 0, 2)
     ]], {
         -- <func2-1.17.2>
-        "S"
+        "Su"
         -- </func2-1.17.2>
     })
 
@@ -324,7 +324,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -0, 1)
     ]], {
         -- <func2-1.24>
-        ""
+        "S"
         -- </func2-1.24>
     })
 
@@ -344,7 +344,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -1, 1)
     ]], {
         -- <func2-1.25.1>
-        "s"
+        "S"
         -- </func2-1.25.1>
     })
 
@@ -354,7 +354,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -1, 2)
     ]], {
         -- <func2-1.25.2>
-        "s"
+        "Su"
         -- </func2-1.25.2>
     })
 
@@ -364,7 +364,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -2, 1)
     ]], {
         -- <func2-1.26>
-        "u"
+        "S"
         -- </func2-1.26>
     })
 
@@ -374,7 +374,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -30, 1)
     ]], {
         -- <func2-1.27>
-        "r"
+        "S"
         -- </func2-1.27>
     })
 
@@ -414,7 +414,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -35, 1)
     ]], {
         -- <func2-1.29.1>
-        ""
+        "S"
         -- </func2-1.29.1>
     })
 
@@ -424,7 +424,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -35, 2)
     ]], {
         -- <func2-1.29.2>
-        "S"
+        "Su"
         -- </func2-1.29.2>
     })
 
@@ -444,7 +444,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -36, 1)
     ]], {
         -- <func2-1.30.1>
-        ""
+        "S"
         -- </func2-1.30.1>
     })
 
@@ -454,7 +454,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -36, 2)
     ]], {
         -- <func2-1.30.2>
-        ""
+        "Su"
         -- </func2-1.30.2>
     })
 
@@ -464,7 +464,7 @@ test:do_execsql_test(
         SELECT SUBSTR('Supercalifragilisticexpialidocious', -36, 3)
     ]], {
         -- <func2-1.30.3>
-        "S"
+        "Sup"
         -- </func2-1.30.3>
     })
 
@@ -479,23 +479,23 @@ test:do_execsql_test(
         -- </func2-1.31.0>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.31.1",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 0, -1)
     ]], {
         -- <func2-1.31.1>
-        ""
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.31.1>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.31.2",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 0, -2)
     ]], {
         -- <func2-1.31.2>
-        ""
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.31.2>
     })
 
@@ -509,13 +509,13 @@ test:do_execsql_test(
         -- </func2-1.32.0>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.32.1",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 1, -1)
     ]], {
         -- <func2-1.32.1>
-        ""
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.32.1>
     })
 
@@ -529,23 +529,23 @@ test:do_execsql_test(
         -- </func2-1.33.0>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.33.1",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 2, -1)
     ]], {
         -- <func2-1.33.1>
-        "S"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.33.1>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.33.2",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 2, -2)
     ]], {
         -- <func2-1.33.2>
-        "S"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.33.2>
     })
 
@@ -559,63 +559,63 @@ test:do_execsql_test(
         -- </func2-1.34.0>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.34.1",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 3, -1)
     ]], {
         -- <func2-1.34.1>
-        "u"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.34.1>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.34.2",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 3, -2)
     ]], {
         -- <func2-1.34.2>
-        "Su"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.34.2>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.35.1",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 30, -1)
     ]], {
         -- <func2-1.35.1>
-        "o"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.35.1>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.35.2",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 30, -2)
     ]], {
         -- <func2-1.35.2>
-        "do"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.35.2>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.36",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 34, -1)
     ]], {
         -- <func2-1.36>
-        "u"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.36>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.37",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 35, -1)
     ]], {
         -- <func2-1.37>
-        "s"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.37>
     })
 
@@ -629,23 +629,23 @@ test:do_execsql_test(
         -- </func2-1.38.0>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.38.1",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 36, -1)
     ]], {
         -- <func2-1.38.1>
-        ""
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.38.1>
     })
 
-test:do_execsql_test(
+test:do_catchsql_test(
     "func2-1.38.2",
     [[
         SELECT SUBSTR('Supercalifragilisticexpialidocious', 36, -2)
     ]], {
         -- <func2-1.38.2>
-        "s"
+        1, "Wrong argument for function SUBSTR(): Length of the result cannot be less than 0"
         -- </func2-1.38.2>
     })
 
@@ -713,7 +713,7 @@ if ("ሴ" ~= "u1234")
             SELECT SUBSTR('hiሴho', 0, 1)
         ]], {
             -- <func2-2.2.1>
-            ""
+            "h"
             -- </func2-2.2.1>
         })
 
@@ -723,7 +723,7 @@ if ("ሴ" ~= "u1234")
             SELECT SUBSTR('hiሴho', 0, 2)
         ]], {
             -- <func2-2.2.2>
-            "h"
+            "hi"
             -- </func2-2.2.2>
         })
 
@@ -733,7 +733,7 @@ if ("ሴ" ~= "u1234")
             SELECT SUBSTR('hiሴho', 0, 3)
         ]], {
             -- <func2-2.2.3>
-            "hi"
+            "hiሴ"
             -- </func2-2.2.3>
         })
 
@@ -743,7 +743,7 @@ if ("ሴ" ~= "u1234")
             SELECT SUBSTR('hiሴho', 0, 4)
         ]], {
             -- <func2-2.2.4>
-            "hiሴ"
+            "hiሴh"
             -- </func2-2.2.4>
         })
 
@@ -753,7 +753,7 @@ if ("ሴ" ~= "u1234")
             SELECT SUBSTR('hiሴho', 0, 5)
         ]], {
             -- <func2-2.2.5>
-            "hiሴh"
+            "hiሴho"
             -- </func2-2.2.5>
         })
 
@@ -883,7 +883,7 @@ if ("ሴ" ~= "u1234")
             SELECT SUBSTR('ሴ', 0, 1)
         ]], {
             -- <func2-2.5.1>
-            ""
+            "ሴ"
             -- </func2-2.5.1>
         })
 
@@ -1074,14 +1074,14 @@ test:do_test(
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', 0, 1)"
         return bin_to_hex(test.lindex(blob, 0))
-    end, "")
+    end, "12")
 
 test:do_test(
     "func2-3.2.2",
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', 0, 2)"
         return bin_to_hex(test.lindex(blob, 0))
-    end, "12")
+    end, "1234")
 
 test:do_test(
     "func2-3.2.3",
@@ -1130,21 +1130,21 @@ test:do_test(
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', -1, 1)"
         return bin_to_hex(test.lindex(blob, 0))
-    end, "34")
+    end, "12")
 
 test:do_test(
     "func2-3.4.2",
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', -1, 2)"
         return bin_to_hex(test.lindex(blob, 0))
-    end, "34")
+    end, "1234")
 
 test:do_test(
     "func2-3.4.3",
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', -1, 3)"
         return bin_to_hex(test.lindex(blob, 0))
-    end, "34")
+    end, "1234")
 
 test:do_test(
     "func2-3.5.0",
@@ -1182,44 +1182,9 @@ test:do_test(
     end, "")
 
 test:do_test(
-    "func2-3.6.1",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', -1, -1)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "12")
-
-test:do_test(
-    "func2-3.6.2",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', -1, -2)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "12")
-
-test:do_test(
-    "func2-3.6.3",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', -1, -3)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "12")
-
-test:do_test(
     "func2-3.7.0",
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', -2, 0)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "")
-
-test:do_test(
-    "func2-3.7.1",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', -2, -1)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "")
-
-test:do_test(
-    "func2-3.7.2",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', -2, -2)"
         return bin_to_hex(test.lindex(blob, 0))
     end, "")
 
@@ -1231,40 +1196,10 @@ test:do_test(
     end, "")
 
 test:do_test(
-    "func2-3.8.1",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', 1, -1)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "")
-
-test:do_test(
-    "func2-3.8.2",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', 1, -2)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "")
-
-test:do_test(
     "func2-3.9.0",
     function()
         local blob = test:execsql "SELECT SUBSTR(x'1234', 2, 0)"
         return bin_to_hex(test.lindex(blob, 0))
     end, "")
-
-test:do_test(
-    "func2-3.9.1",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', 2, -1)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "12")
-
-test:do_test(
-    "func2-3.9.2",
-    function()
-        local blob = test:execsql "SELECT SUBSTR(x'1234', 2, -2)"
-        return bin_to_hex(test.lindex(blob, 0))
-    end, "12")
-
-
 
 test:finish_test()

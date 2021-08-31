@@ -139,7 +139,7 @@ test:do_execsql_test(
         SELECT substr(t1,-1,1) FROM tbl1 ORDER BY t1
     ]], {
         -- <func-2.3>
-        "e", "s", "m", "e", "s"
+        "f", "i", "p", "s", "t"
         -- </func-2.3>
     })
 
@@ -149,7 +149,7 @@ test:do_execsql_test(
         SELECT substr(t1,-1,2) FROM tbl1 ORDER BY t1
     ]], {
         -- <func-2.4>
-        "e", "s", "m", "e", "s"
+        "fr", "is", "pr", "so", "th"
         -- </func-2.4>
     })
 
@@ -159,7 +159,7 @@ test:do_execsql_test(
         SELECT substr(t1,-2,1) FROM tbl1 ORDER BY t1
     ]], {
         -- <func-2.5>
-        "e", "i", "a", "r", "i"
+        "f", "i", "p", "s", "t"
         -- </func-2.5>
     })
 
@@ -169,7 +169,7 @@ test:do_execsql_test(
         SELECT substr(t1,-2,2) FROM tbl1 ORDER BY t1
     ]], {
         -- <func-2.6>
-        "ee", "is", "am", "re", "is"
+        "fr", "is", "pr", "so", "th"
         -- </func-2.6>
     })
 
@@ -179,7 +179,7 @@ test:do_execsql_test(
         SELECT substr(t1,-4,2) FROM tbl1 ORDER BY t1
     ]], {
         -- <func-2.7>
-        "fr", "", "gr", "wa", "th"
+        "fr", "is", "pr", "so", "th"
         -- </func-2.7>
     })
 
@@ -288,7 +288,7 @@ if ("ሴ" ~= "u1234") then
             SELECT substr(t1,-1,1) FROM tbl1 ORDER BY t1
         ]], {
             -- <func-3.8>
-            "8", "s", "s", "o"
+            "U", "c", "c", "h"
             -- </func-3.8>
         })
 
@@ -298,7 +298,7 @@ if ("ሴ" ~= "u1234") then
             SELECT substr(t1,-3,2) FROM tbl1 ORDER BY t1
         ]], {
             -- <func-3.9>
-            "F-", "er", "in", "ሴh"
+            "UT", "ch", "co", "hi"
             -- </func-3.9>
         })
 
@@ -308,7 +308,7 @@ if ("ሴ" ~= "u1234") then
             SELECT substr(t1,-4,3) FROM tbl1 ORDER BY t1
         ]], {
             -- <func-3.10>
-            "TF-", "ter", "ain", "iሴh"
+            "UTF", "cha", "con", "hiሴ"
             -- </func-3.10>
         })
 
