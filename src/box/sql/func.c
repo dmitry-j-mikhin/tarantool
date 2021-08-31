@@ -70,6 +70,19 @@ get_coll(struct sql_context *ctx)
 	return op->p4.pColl;
 }
 
+static inline uint32_t
+strlen_utf8(const char *str, uint32_t size)
+{
+	uint32_t len = 0;
+	uint32_t pos = 0;
+	while (pos < size) {
+		uint8_t c = (uint8_t)str[pos];
+		pos += 1 + (c >= 0xc2) + (c >= 0xe0) + (c >= 0xf0);
+		++len;
+	}
+	return len;
+}
+
 /** Implementation of the HEX() SQL built-in function. */
 static void
 func_hex(struct sql_context *ctx, int argc, struct Mem **argv)
@@ -215,6 +228,34 @@ func_substring(struct sql_context *ctx, int argc, struct Mem **argv)
 		ctx->is_aborted = true;
 }
 
+/** Implementation of the CHAR_LENGTH() function. */
+static void
+func_char_length(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	if (argv[0]->type == MEM_TYPE_NULL)
+		return mem_set_null(ctx->pOut);
+	assert(argv[0]->type == MEM_TYPE_STR && argv[0]->n >= 0);
+	if (argv[0]->n == 0)
+		return mem_set_uint(ctx->pOut, 0);
+	assert(argv[0]->z != NULL);
+	mem_set_uint(ctx->pOut, strlen_utf8(argv[0]->z, argv[0]->n));
+}
+
+/** Implementation of the OCTET_LENGTH() function. */
+static void
+func_octet_length(struct sql_context *ctx, int argc, struct Mem **argv)
+{
+	assert(argc == 1);
+	(void)argc;
+	if (argv[0]->type == MEM_TYPE_NULL)
+		return mem_set_null(ctx->pOut);
+	assert(argv[0]->type == MEM_TYPE_STR || argv[0]->type == MEM_TYPE_BIN);
+	assert(argv[0]->n >= 0);
+	return mem_set_uint(ctx->pOut, argv[0]->n);
+}
+
 static const unsigned char *
 mem_as_ustr(struct Mem *mem)
 {
@@ -348,44 +389,6 @@ typeofFunc(sql_context * context, int NotUsed, sql_value ** argv)
 		break;
 	}
 	sql_result_text(context, z, -1, SQL_STATIC);
-}
-
-/*
- * Implementation of the length() function
- */
-static void
-lengthFunc(sql_context * context, int argc, sql_value ** argv)
-{
-	int len;
-
-	assert(argc == 1);
-	UNUSED_PARAMETER(argc);
-	switch (sql_value_type(argv[0])) {
-	case MP_BIN:
-	case MP_ARRAY:
-	case MP_MAP:
-	case MP_INT:
-	case MP_UINT:
-	case MP_BOOL:
-	case MP_DOUBLE:{
-			mem_as_bin(argv[0]);
-			sql_result_uint(context, mem_len_unsafe(argv[0]));
-			break;
-		}
-	case MP_EXT:
-	case MP_STR:{
-			const unsigned char *z = mem_as_ustr(argv[0]);
-			if (z == 0)
-				return;
-			len = sql_utf8_char_count(z, mem_len_unsafe(argv[0]));
-			sql_result_uint(context, len);
-			break;
-		}
-	default:{
-			sql_result_null(context);
-			break;
-		}
-	}
 }
 
 /*
@@ -1935,8 +1938,8 @@ static struct sql_func_definition definitions[] = {
 	{"AVG", 1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_INTEGER, sum_step, avgFinalize},
 	{"AVG", 1, {FIELD_TYPE_DOUBLE}, FIELD_TYPE_DOUBLE, sum_step, avgFinalize},
 	{"CHAR", -1, {FIELD_TYPE_INTEGER}, FIELD_TYPE_STRING, charFunc, NULL},
-	{"CHAR_LENGTH", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_INTEGER, lengthFunc,
-	 NULL},
+	{"CHAR_LENGTH", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_INTEGER,
+	 func_char_length, NULL},
 	{"COALESCE", -1, {FIELD_TYPE_ANY}, FIELD_TYPE_SCALAR, sql_builtin_stub,
 	 NULL},
 	{"COUNT", 0, {}, FIELD_TYPE_INTEGER, countStep, countFinalize},
@@ -1980,10 +1983,10 @@ static struct sql_func_definition definitions[] = {
 	{"LEAST", -1, {FIELD_TYPE_STRING}, FIELD_TYPE_STRING, minmaxFunc, NULL},
 	{"LEAST", -1, {FIELD_TYPE_SCALAR}, FIELD_TYPE_SCALAR, minmaxFunc, NULL},
 
-	{"LENGTH", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_INTEGER, lengthFunc,
+	{"LENGTH", 1, {FIELD_TYPE_STRING}, FIELD_TYPE_INTEGER, func_char_length,
 	 NULL},
-	{"LENGTH", 1, {FIELD_TYPE_VARBINARY}, FIELD_TYPE_INTEGER, lengthFunc,
-	 NULL},
+	{"LENGTH", 1, {FIELD_TYPE_VARBINARY}, FIELD_TYPE_INTEGER,
+	 func_octet_length, NULL},
 	{"LIKE", 2, {FIELD_TYPE_STRING, FIELD_TYPE_STRING},
 	 FIELD_TYPE_BOOLEAN, likeFunc, NULL},
 	{"LIKE", 3, {FIELD_TYPE_STRING, FIELD_TYPE_STRING, FIELD_TYPE_STRING},
