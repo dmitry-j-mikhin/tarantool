@@ -546,6 +546,11 @@ struct iproto_connection
 	enum iproto_connection_state state;
 	struct rlist in_stop_list;
 	/**
+	 * Flag indicates, that client sent SHUT_RDWR or connection
+	 * is closed from client side.
+	 */
+	bool connection_is_closing;
+	/**
 	 * Hash table that holds all streams for this connection.
 	 * This field is accesable only from iproto thread.
 	 */
@@ -1258,6 +1263,32 @@ iproto_connection_on_input(ev_loop *loop, struct ev_io *watcher,
 	}
 }
 
+static void
+iproto_flush_without_write(struct iproto_connection *con)
+{
+	while (true) {
+		struct obuf *obuf = con->wpos.obuf;
+		struct obuf_svp obuf_end = obuf_create_svp(obuf);
+		struct obuf_svp *begin = &con->wpos.svp;
+		struct obuf_svp *end = &con->wend.svp;
+		if (con->wend.obuf != obuf) {
+			/*
+			 * Flush the current buffer before
+			 * advancing to the next one.
+			 */
+			if (begin->used == obuf_end.used) {
+				obuf = con->wpos.obuf = con->wend.obuf;
+				obuf_svp_reset(begin);
+			} else {
+				end = &obuf_end;
+			}
+		}
+		if (begin->used == end->used)
+			return;
+		*begin = *end;
+	}
+}
+
 /** writev() to the socket and handle the result. */
 
 static int
@@ -1341,7 +1372,20 @@ iproto_connection_on_output(ev_loop *loop, struct ev_io *watcher,
 			ev_io_stop(con->loop, &con->output);
 	} catch (Exception *e) {
 		e->log();
-		iproto_connection_close(con);
+		/*
+		 * We should not close connection here, only mark a
+		 * fact, that client sent SHUT_RDWR or closed connection.
+		 * We will close the connection when we have read everything
+		 * that the client has sent and processed all requests.
+		 */
+		con->connection_is_closing = true;
+		/*
+		 * We should activate `con->input` in case it was stopped,
+		 * because of readahead limit is reached.
+		 */
+		if (! ev_is_active(&con->input) &&
+		    rlist_empty(&con->in_stop_list))
+			ev_feed_event(con->loop, &con->input, EV_READ);
 	}
 }
 
@@ -1377,6 +1421,7 @@ iproto_connection_new(struct iproto_thread *iproto_thread, int fd)
 	iproto_wpos_create(&con->wpos, con->tx.p_obuf);
 	iproto_wpos_create(&con->wend, con->tx.p_obuf);
 	con->parse_size = 0;
+	con->connection_is_closing = false;
 	con->long_poll_count = 0;
 	con->session = NULL;
 	rlist_create(&con->in_stop_list);
@@ -2336,7 +2381,18 @@ net_send_msg(struct cmsg *m)
 	con->wend = msg->wpos;
 
 	if (evio_has_fd(&con->output)) {
-		if (! ev_is_active(&con->output))
+		if (con->connection_is_closing) {
+			/*
+			 * In case when we received SHUT_RDWR or connection was closed
+			 * by client, there is no need to write response to client, we
+			 * should only flush buffer.
+			 */
+			iproto_flush_without_write(con);
+			if (! ev_is_active(&con->input) &&
+			    rlist_empty(&con->in_stop_list)) {
+				ev_feed_event(con->loop, &con->input, EV_READ);
+			}
+		} else if (! ev_is_active(&con->output))
 			ev_feed_event(con->loop, &con->output, EV_WRITE);
 	} else if (iproto_connection_is_idle(con)) {
 		iproto_connection_close(con);
