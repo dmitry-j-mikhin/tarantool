@@ -72,6 +72,13 @@ inject_current_stats(struct lua_State *L)
 	lua_pushnumber(L, iproto_request_count());
 	lua_rawset(L, -3);
 	lua_pop(L, 1);
+
+	lua_pushstring(L, "STREAMS");
+	lua_rawget(L, -2);
+	lua_pushstring(L, "current");
+	lua_pushnumber(L, iproto_streams_count());
+	lua_rawset(L, -3);
+	lua_pop(L, 1);
 }
 
 static void

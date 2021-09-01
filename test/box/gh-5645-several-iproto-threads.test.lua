@@ -6,13 +6,15 @@ test_run:cmd("create server test with script=\
               'box/gh-5645-several-iproto-threads.lua'")
 
 test_run:cmd("setopt delimiter ';'")
-function iproto_call(server_addr, fibers_count)
+function iproto_call(server_addr, fibers_count, call_count)
     local fibers = {}
     for i = 1, fibers_count do
         fibers[i] = fiber.new(function()
             local conn = net_box.new(server_addr)
-            for _ = 1, 100 do
+            local stream = conn:new_stream()
+            for _ = 1, call_count do
                 pcall(conn.call, conn, 'ping')
+                pcall(stream.call, stream, 'ping')
             end
             conn:close()
         end)
@@ -31,7 +33,8 @@ function get_network_stat_using_call()
     local requests = net_stat_table.REQUESTS.total
     local sent = net_stat_table.SENT.total
     local received = net_stat_table.RECEIVED.total
-    return connections, requests, sent, received
+    local streams = net_stat_table.STREAMS.total
+    return connections, requests, sent, received, streams
 end;
 function get_network_stat_for_thread_using_call(thread_number)
     local net_stat_table = test_run:cmd(
@@ -42,7 +45,8 @@ function get_network_stat_for_thread_using_call(thread_number)
     local requests = net_stat_table[thread_number].REQUESTS.total
     local sent = net_stat_table[thread_number].SENT.total
     local received = net_stat_table[thread_number].RECEIVED.total
-    return connections, requests, sent, received
+    local streams = net_stat_table[thread_number].STREAMS.total
+    return connections, requests, sent, received, streams
 end;
 function get_network_stat_using_index()
     local connections = test_run:cmd(string.format(
@@ -57,7 +61,10 @@ function get_network_stat_using_index()
     local received = test_run:cmd(string.format(
         "eval test 'return box.stat.net.RECEIVED.total'")
     )[1]
-    return connections, requests, sent, received
+    local streams = test_run:cmd(string.format(
+        "eval test 'return box.stat.net.STREAMS.total'")
+    )[1]
+    return connections, requests, sent, received, streams
 end;
 function get_network_stat_for_thread_using_index(thread_number)
     local connections = test_run:cmd(string.format(
@@ -76,7 +83,11 @@ function get_network_stat_for_thread_using_index(thread_number)
         "eval test 'return box.stat.net.thread[%d].RECEIVED.total'",
         thread_number
     ))[1]
-    return connections, requests, sent, received
+     local streams = test_run:cmd(string.format(
+        "eval test 'return box.stat.net.thread[%d].STREAMS.total'",
+        thread_number
+    ))[1]
+    return connections, requests, sent, received, streams
 end;
 test_run:cmd("setopt delimiter ''");
 
@@ -113,38 +124,46 @@ function ping() return "pong" end
 test_run:switch("default")
 
 server_addr = test_run:cmd("eval test 'return box.cfg.listen'")[1]
-iproto_call(server_addr, fibers_count)
+call_count = 50
+iproto_call(server_addr, fibers_count, call_count)
 -- Total statistics from all threads.
 test_run:cmd("setopt delimiter ';'")
-conn_t_call, req_t_call, sent_t_call, rec_t_call =
+conn_t_call, req_t_call, sent_t_call, rec_t_call, streams_t_call =
     get_network_stat_using_call();
-conn_t_index, req_t_index, sent_t_index, rec_t_index =
+conn_t_index, req_t_index, sent_t_index, rec_t_index, streams_t_index =
     get_network_stat_using_index();
 assert(conn_t_call == conn_t_index and req_t_call == req_t_index and
-       sent_t_call == sent_t_index and rec_t_call == rec_t_index);
+       sent_t_call == sent_t_index and rec_t_call == rec_t_index and
+       streams_t_call == streams_t_index);
 test_run:cmd("setopt delimiter ''");
 -- Statistics per thread.
-conn, req, sent, rec = 0, 0, 0, 0
+conn, req, sent, rec, streams = 0, 0, 0, 0, 0
 assert(conn_t_call == fibers_count)
+assert(streams_t_call == fibers_count * call_count)
 
 test_run:cmd("setopt delimiter ';'")
 for thread_number = 1, thread_count do
-    local conn_c_call, req_c_call, sent_c_call, rec_c_call =
+    local conn_c_call, req_c_call, sent_c_call, rec_c_call,
+          streams_c_call =
         get_network_stat_for_thread_using_call(thread_number)
-    local conn_c_index, req_c_index, sent_c_index, rec_c_index =
+    local conn_c_index, req_c_index, sent_c_index, rec_c_index,
+          streams_c_index =
         get_network_stat_for_thread_using_index(thread_number)
     assert(conn_c_call == conn_c_index and req_c_call == req_c_index and
-           sent_c_call == sent_c_index and rec_c_call == rec_c_index)
+           sent_c_call == sent_c_index and rec_c_call == rec_c_index and
+           streams_c_call == streams_c_index)
     conn = conn + conn_c_call
     req = req + req_c_call
     sent = sent + sent_c_call
     rec = rec + rec_c_call
+    streams = streams + streams_c_call
 end;
 test_run:cmd("setopt delimiter ''");
 assert(conn_t_call == conn)
 assert(req_t_call == req)
 assert(sent_t_call == sent)
 assert(rec_t_call == rec)
+assert(streams_t_call == streams)
 
 test_run:cmd("stop server test")
 test_run:cmd("cleanup server test")

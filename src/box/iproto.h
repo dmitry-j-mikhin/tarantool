@@ -71,6 +71,12 @@ size_t
 iproto_connection_count(void);
 
 /**
+ * Return the number of active iproto streams.
+ */
+size_t
+iproto_streams_count(void);
+
+/**
  * Return the number of iproto requests in flight.
  */
 size_t
