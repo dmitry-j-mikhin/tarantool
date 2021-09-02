@@ -52,6 +52,8 @@ enum {
 	 * processing stops until some new fibers are freed up.
 	 */
 	IPROTO_FIBER_POOL_SIZE_FACTOR = 5,
+	/** Maximum count of iproto threads */
+	IPROTO_THREADS_MAX = 1000,
 };
 
 extern unsigned iproto_readahead;
@@ -89,6 +91,9 @@ iproto_bound_address(char *buf);
 
 int
 iproto_rmean_foreach(void *cb, void *cb_ctx);
+
+int
+iproto_rmean_foreach_thread(int thread_number, void *cb, void *cb_ctx);
 
 #if defined(__cplusplus)
 } /* extern "C" */

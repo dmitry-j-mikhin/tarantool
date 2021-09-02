@@ -2979,14 +2979,6 @@ iproto_mem_used(void)
 	struct iproto_cfg_msg cfg_msg;
 	size_t mem = 0;
 	iproto_cfg_msg_create(&cfg_msg, IPROTO_CFG_STAT);
-#ifndef NDEBUG
-	struct errinj *inj =
-		errinj(ERRINJ_IPROTO_SINGLE_THREAD_STAT, ERRINJ_INT);
-	if (inj->iparam >= 0 && inj->iparam < iproto_threads_count) {
-		iproto_do_cfg(&iproto_threads[inj->iparam], &cfg_msg);
-		return cfg_msg.mem_used;
-	}
-#endif
 	for (int i = 0; i < iproto_threads_count; i++) {
 		iproto_do_cfg(&iproto_threads[i], &cfg_msg);
 		mem += cfg_msg.mem_used;
@@ -3000,14 +2992,6 @@ iproto_connection_count(void)
 	struct iproto_cfg_msg cfg_msg;
 	size_t count = 0;
 	iproto_cfg_msg_create(&cfg_msg, IPROTO_CFG_STAT);
-#ifndef NDEBUG
-	struct errinj *inj =
-		errinj(ERRINJ_IPROTO_SINGLE_THREAD_STAT, ERRINJ_INT);
-	if (inj->iparam >= 0 && inj->iparam < iproto_threads_count) {
-		iproto_do_cfg(&iproto_threads[inj->iparam], &cfg_msg);
-		return cfg_msg.connections;
-	}
-#endif
 	for (int i = 0; i < iproto_threads_count; i++) {
 		iproto_do_cfg(&iproto_threads[i], &cfg_msg);
 		count += cfg_msg.connections;
@@ -3021,14 +3005,6 @@ iproto_request_count(void)
 	struct iproto_cfg_msg cfg_msg;
 	size_t count = 0;
 	iproto_cfg_msg_create(&cfg_msg, IPROTO_CFG_STAT);
-#ifndef NDEBUG
-	struct errinj *inj =
-		errinj(ERRINJ_IPROTO_SINGLE_THREAD_STAT, ERRINJ_INT);
-	if (inj->iparam >= 0 && inj->iparam < iproto_threads_count) {
-		iproto_do_cfg(&iproto_threads[inj->iparam], &cfg_msg);
-		return cfg_msg.requests;
-	}
-#endif
 	for (int i = 0; i < iproto_threads_count; i++) {
 		iproto_do_cfg(&iproto_threads[i], &cfg_msg);
 		count += cfg_msg.requests;
@@ -3089,14 +3065,10 @@ iproto_free(void)
 int
 iproto_rmean_foreach(void *cb, void *cb_ctx)
 {
-	struct errinj *inj =
-		errinj(ERRINJ_IPROTO_SINGLE_THREAD_STAT, ERRINJ_INT);
 	for (size_t i = 0; i < IPROTO_LAST; i++) {
 		int64_t mean = 0;
 		int64_t total = 0;
 		for (int j = 0; j < iproto_threads_count; j++)  {
-			if (inj != NULL && inj->iparam >= 0 && inj->iparam != j)
-				continue;
 			mean += rmean_mean(iproto_threads[j].rmean, i);
 			total += rmean_total(iproto_threads[j].rmean, i);
 		}
@@ -3106,4 +3078,23 @@ iproto_rmean_foreach(void *cb, void *cb_ctx)
 			return rc;
 	}
 	return 0;
+}
+
+int
+iproto_rmean_foreach_thread(int thread_number, void *cb, void *cb_ctx)
+{
+	if (thread_number < 0 || thread_number >= iproto_threads_count)
+		return -1;
+
+	int rc = 0;
+	for (size_t i = 0; i < IPROTO_LAST; i++) {
+		int64_t mean =
+			rmean_mean(iproto_threads[thread_number].rmean, i);
+		int64_t total =
+			rmean_total(iproto_threads[thread_number].rmean, i);
+		if (((rmean_cb)cb)(rmean_net_strings[i], mean,
+				   total, cb_ctx) != 0)
+			rc = 1;
+	}
+	return rc;
 }
