@@ -151,3 +151,16 @@ will be most convenient for our users.
 [gfm]: https://guides.github.com/features/mastering-markdown/
 [keep_a_changelog]: https://keepachangelog.com/en/1.0.0/
 [gitlab_changelog]: https://docs.gitlab.com/ee/development/changelog.html
+
+## Alternatives
+
+### Store a changelog entry in a commit message
+
+This process is [used in librepo][librepo_changelog_process]. It should mostly
+work for us, but there are several downsides:
+
+* A developer should remember about the changelog when writting a commit
+  message.
+* There is no ability to modify a changelog entry if a mistake is found later.
+
+[librepo_changelog_process]: https://github.com/rpm-software-management/librepo/commit/9e08de498f501651987333b8da3055a08745d20c
